@@ -15,7 +15,7 @@ mcp-chest-memory は、これらをすべて自動で解決します。
 - **自動で作業内容・失敗の原因・調査の結果を、複数プロジェクトにまたがって記憶します。**
 
 **この MCP を導入することで、LLM はあなたと一緒に成長していきます。
-ミスや同じ質問をすることがどんどん減っていき、まるであなたの分身のように LLM はふるまうようになっていきます。**
+ミスや同じ質問をすることがどんどん減っていき、まるであなたの分身のように LLM はふるまうようになります。**
 
 **さらに良い副作用として、LLM の利用トークンを大幅に削減することができます。**
 
@@ -205,7 +205,7 @@ rm -rf ~/.chest-memory   # 記憶データごと消す場合のみ
 - **セッション終了のたび**（フック、`chest-memory-setup` が設定）: Stop のたびに
   セッションがキャプチャされ、作業状態スナップショットがコンテキスト圧縮を
   跨いで保持されます
-- **保存後のバックグラウンド**（`CHEST_MAINTENANCE_INTERVAL_SEC`、既定 10 分に
+- **保存後のバックグラウンド**（`CHEST_MAINTENANCE_INTERVAL_SEC`、既定 600 秒 / 10 分に
   1 回へスロットリング）: activation 減衰の再計算、TTL 失効と archive
   スイープ、supersession 検出、コールドな記憶の統合（consolidation）、
   pending 行の embedding 補完。スケジューラの設定は不要です。手動実行用に
@@ -374,7 +374,7 @@ composite = (0.45·relevance + 0.25·heat + 0.15·momentum + 0.15·importance)
 メンテナンスは自走します: 保存のあと、サーバーがバックグラウンドで
 （応答を遅らせずに）activation 再計算 → 減衰/archive スイープ →
 supersession スイープ → pending 行の embedding 補完を実行します。
-実行は `CHEST_MAINTENANCE_INTERVAL_SEC`（既定 600 秒）に 1 回へ
+実行は `CHEST_MAINTENANCE_INTERVAL_SEC`（既定 600 秒 / 10 分）に 1 回へ
 スロットリングされ、ファイルロックで手動の `chest-index up` とも
 排他されます。`CHEST_AUTO_MAINTENANCE=0` で自動実行を止め、すべて
 `chest-index` で手動運用することもできます。

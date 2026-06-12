@@ -63,7 +63,7 @@ export async function handleChestUpdateMemory(
   await rawRun(prisma, `UPDATE memories SET ${setClause} WHERE id = ?`, ...values, memoryId);
 
   // When content changes, fully reset the embedding pipeline:
-  //   - clear embedding columns (vector, model, dim, batch_id) to NULL
+  //   - clear embedding columns (vector, model, dim) to NULL
   //   - reset status to 'pending' so the next indexing cycle re-embeds
   //   - reset error info and transient retry counter (new content = fresh attempt)
   //   - update state_changed_at for audit purposes
@@ -76,11 +76,7 @@ export async function handleChestUpdateMemory(
          embedding = NULL,
          embedding_model = NULL,
          embedding_status = 'pending',
-         embedding_batch_id = NULL,
          embedding_dim = NULL,
-         embedding_error_kind = NULL,
-         embedding_error_reason = NULL,
-         embedding_transient_retry_count = 0,
          embedding_state_changed_at = ?
        WHERE id = ?`,
       nowSec,

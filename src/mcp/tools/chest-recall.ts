@@ -16,9 +16,9 @@ import {
 } from "../../lib/search/recall-scoring.js";
 import { extractSnippet, DEFAULT_SNIPPET_WINDOW } from "../../lib/search/snippet.js";
 
-// Production default uses Gemini query embedding with timeout and fail-open behavior.
-// If GEMINI_API_KEY is unset, the API errors, or the call times out, embedQuery returns null
-// and recall gracefully degrades to FTS + LIKE only.
+// The query is embedded by the local model with a timeout and fail-open
+// behavior: if the model is unavailable or the call times out, embedQuery
+// returns null and recall gracefully degrades to FTS + LIKE only.
 // Tests can inject a fake via `handleChestRecall(args, { embedQuery })`.
 type EmbedQueryFn = (query: string) => Promise<number[] | null>;
 

@@ -1,6 +1,4 @@
-// Dependency-injection ports shared by cycle, submit, fetch, ingest, and reclaim.
-import type { PrismaClient } from "@prisma/client";
-import type { GeminiBatchClient } from "./gemini-client.js";
+// Small dependency-injection ports shared across maintenance phases.
 
 export interface Logger {
   info(...args: unknown[]): void;
@@ -17,11 +15,3 @@ export interface Clock {
 export const realClock: Clock = {
   nowSec: () => Math.floor(Date.now() / 1000),
 };
-
-/** All dependencies required to execute a single embedding cycle. */
-export interface CyclePorts {
-  prisma: PrismaClient;
-  gemini: GeminiBatchClient;
-  logger: Logger;
-  clock: Clock;
-}

@@ -69,16 +69,11 @@ model Memory {
   embedding                String?
   embeddingModel           String?  @map("embedding_model")
 
-  // Async embedding state machine (shared by all providers).
-  // The local provider transitions pending -> done synchronously;
-  // the gemini provider goes through the batch lifecycle.
+  // Embedding row state: pending (not yet embedded) or done. Writes embed
+  // synchronously when the model is available; otherwise the periodic sweep
+  // (chest-index) backfills pending rows.
   embeddingStatus              String   @default("pending") @map("embedding_status")
-  embeddingBatchId             String?  @map("embedding_batch_id")
   embeddingStateChangedAt      BigInt   @default(dbgenerated("(unixepoch())")) @map("embedding_state_changed_at")
-  embeddingErrorKind           String?  @map("embedding_error_kind")
-  embeddingErrorReason         String?  @map("embedding_error_reason")
-  embeddingTransientRetryCount Int      @default(0) @map("embedding_transient_retry_count")
-  embeddingStaleCount          Int      @default(0) @map("embedding_stale_count")
   embeddingDim                 Int?     @map("embedding_dim")
 
   activationScore          Float?   @map("activation_score")
@@ -92,7 +87,6 @@ model Memory {
   accessLogs               MemoryAccessLog[]
   sessionFileEdits         SessionFileEdit[]
   consolidations           Consolidation[]
-  embeddingBatch           EmbeddingBatch? @relation(fields: [embeddingBatchId], references: [id], onDelete: SetNull)
 
   @@index([entityId], map: "idx_memories_entity")
   @@index([layer], map: "idx_memories_layer")
@@ -109,55 +103,7 @@ model Memory {
   @@index([entityId, archivedAt, supersededById, layer], map: "idx_memories_recall_filter")
   // Embedding state lookups
   @@index([embeddingStatus], map: "idx_memories_emb_status")
-  @@index([embeddingBatchId], map: "idx_memories_emb_batch")
-  @@index([embeddingStatus, embeddingStateChangedAt], map: "idx_memories_emb_stale")
   @@map("memories")
-}
-
-// =========================================================================
-// Batch embedding: one row per remote batch request (gemini provider only)
-// =========================================================================
-model EmbeddingBatch {
-  id                String   @id
-  status            String   @default("submitting")
-  recordCount       Int      @map("record_count")
-  totalInputBytes   Int?     @map("total_input_bytes")
-  externalRequestId String?  @map("external_request_id")
-  errorSummary      String?  @map("error_summary")
-  cycleRunId        String?  @map("cycle_run_id")
-  submittedAt       BigInt   @default(dbgenerated("(unixepoch())")) @map("submitted_at")
-  completedAt       BigInt?  @map("completed_at")
-  createdAt         BigInt   @default(dbgenerated("(unixepoch())")) @map("created_at")
-  updatedAt         BigInt   @default(dbgenerated("(unixepoch())")) @map("updated_at")
-
-  memories Memory[]
-  cycleRun BatchCycleRun? @relation(fields: [cycleRunId], references: [id], onDelete: SetNull)
-
-  @@index([status], map: "idx_emb_batch_status")
-  @@index([cycleRunId], map: "idx_emb_batch_cycle")
-  @@index([status, submittedAt], map: "idx_emb_batch_status_subm")
-  @@map("embedding_batches")
-}
-
-// =========================================================================
-// Summary of one periodic embedding cycle run
-// =========================================================================
-model BatchCycleRun {
-  id                    String  @id
-  startedAt             BigInt  @default(dbgenerated("(unixepoch())")) @map("started_at")
-  finishedAt            BigInt? @map("finished_at")
-  pendingCountBefore    Int     @default(0) @map("pending_count_before")
-  inProgressCountBefore Int     @default(0) @map("in_progress_count_before")
-  submittedBatches      Int     @default(0) @map("submitted_batches")
-  fetchedBatches        Int     @default(0) @map("fetched_batches")
-  doneAdded             Int     @default(0) @map("done_added")
-  errorAdded            Int     @default(0) @map("error_added")
-  errors                String?
-
-  batches EmbeddingBatch[]
-
-  @@index([startedAt(sort: Desc)], map: "idx_cycle_started")
-  @@map("batch_cycle_runs")
 }
 
 // =========================================================================

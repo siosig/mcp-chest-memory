@@ -20,8 +20,7 @@ Optimized for Claude Code (bundled skill + hooks), works with any MCP client.
   languages all work
 - **Offline-first embeddings** — a small multilingual model
   (`multilingual-e5-small`, ONNX, ~120 MB) runs locally via transformers.js;
-  no API key, no network after the one-time model download. Switchable to
-  Gemini embeddings by configuration
+  no API key, no network after the one-time model download
 - **Memory lifecycle** — ACT-R style activation decay, TTL expiry,
   archive-first deletion, supersession detection, sleep-mode consolidation
 - **Token-saving file reads** — `chest_read_smart` caches file chunk hashes
@@ -139,37 +138,23 @@ the Bearer token itself — a proxy misconfiguration never exposes an
 unauthenticated backend. An optional HTTP Basic layer is sketched in the
 example config.
 
-## Switching embedding providers
+## Embeddings
 
-The default needs no configuration. To switch to Gemini embeddings
-(768-dim, higher quality, requires an API key):
+Embeddings are computed locally by `Xenova/multilingual-e5-small`
+(quantized ONNX, 384 dimensions) via transformers.js — no API key, and fully
+offline after the one-time model download (`tools/install.sh` prefetches it).
+
+Saving never depends on embedding availability: if the model is unavailable,
+the memory is stored with `embedding_status=pending` and backfilled later by
+`chest-index`. Vectors are stamped with the model and dimension that produced
+them; if a future release changes the bundled model, mismatched vectors are
+excluded from vector recall (full-text recall is unaffected) until you
+re-index:
 
 ```bash
-export CHEST_EMBEDDING_PROVIDER=gemini
-export GEMINI_API_KEY=...        # on the backend host in LAN/WAN profiles
-```
-
-Vectors are stamped with the model and dimension that produced them. After a
-switch, old vectors are automatically excluded from vector recall (full-text
-recall is unaffected) until you re-index:
-
-```bash
-chest-index status    # shows how many vectors don't match the active provider
+chest-index status    # shows how many vectors don't match the current model
 chest-index reembed   # resets them to pending and re-embeds
 ```
-
-Adding a provider is one file: implement the `EmbeddingProvider` interface
-(`id`, `model`, `dim`, `embedQuery`, `embedPassages`) in
-`src/lib/embedding/` and register it in `provider.ts`.
-
-| Provider | Model | Dim | Offline | API key |
-|---|---|---|---|---|
-| `local` (default) | Xenova/multilingual-e5-small (q8 ONNX) | 384 | yes (after model download) | none |
-| `gemini` | gemini-embedding-001 | 768 | no | `GEMINI_API_KEY` |
-
-Saving never depends on embedding availability: if the model or API is
-unreachable, the memory is stored with `embedding_status=pending` and
-backfilled later by `chest-index`.
 
 ## How it works
 
@@ -192,9 +177,9 @@ fall back to a LIKE path. Scores come from SQLite's built-in `bm25()`.
 For a recall query both paths run:
 
 1. **FTS path** — trigram match, ranked by bm25
-2. **Vector path** — query embedded by the active provider, cosine similarity
-   against stored vectors (only rows whose `(model, dim)` match the active
-   provider), top-k
+2. **Vector path** — query embedded by the local model, cosine similarity
+   against stored vectors (only rows whose `(model, dim)` match the current
+   model), top-k
 
 The two rankings are fused with **Reciprocal Rank Fusion**
 (`1/(k + rank_fts) + 1/(k + rank_vec)`), min-max normalized to a relevance
@@ -228,8 +213,8 @@ composite = (0.45·relevance + 0.25·heat + 0.15·momentum + 0.15·importance)
 
 `chest-index up --all` (run it from cron or a systemd timer, e.g. every 10
 minutes) executes: activation recompute → decay/archive sweep → supersession
-sweep → embedding backfill (local sweep, or Gemini batch cycle when that
-provider is active). All phases are guarded by a file lock.
+sweep → embedding backfill of pending rows. All phases are guarded by a file
+lock.
 
 ## Configuration reference
 
@@ -241,8 +226,6 @@ provider is active). All phases are guarded by a file lock.
 | `CHEST_REMOTE_URL` | — | Backend base URL (remote mode) |
 | `CHEST_API_TOKEN` | — | Shared Bearer token (backend refuses to start without it) |
 | `CHEST_PORT` | `8765` | REST backend listen port |
-| `CHEST_EMBEDDING_PROVIDER` | `local` | `local` or `gemini` |
-| `GEMINI_API_KEY` | — | Required only for the gemini provider |
 | `CHEST_MAX_CONTENT_CHARS` | `8000` | Max memory content length |
 
 ## Claude Code integration

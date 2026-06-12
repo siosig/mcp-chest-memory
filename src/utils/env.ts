@@ -18,8 +18,6 @@ export const EnvSchema = z.object({
   CHEST_API_TOKEN: z.string().optional(),
   /** REST backend listen port. */
   CHEST_PORT: z.coerce.number().int().positive().default(8765),
-  /** Embedding provider. "local" runs fully offline after model download. */
-  CHEST_EMBEDDING_PROVIDER: z.enum(["local", "gemini"]).default("local"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

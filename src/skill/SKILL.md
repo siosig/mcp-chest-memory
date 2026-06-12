@@ -72,8 +72,8 @@ recent conversation and save it via `chest_remember`, showing your rationale.**
 
 Run `chest-index status` via Bash if available; otherwise summarize from
 `chest_list_entities` + a broad `chest_recall`. Report: total memories by
-embedding status, the active embedding provider, and whether any vectors need
-`chest-index reembed` (after a provider switch).
+embedding status, and whether any vectors need `chest-index reembed`
+(after an embedding model change).
 
 ## Notes
 

@@ -20,11 +20,6 @@ function syncEmbedDisabled(): boolean {
 export async function embedMemorySync(memoryId: number, content: string): Promise<boolean> {
   if (syncEmbedDisabled()) return false;
   const provider = activeProvider();
-  if (provider.id !== "local") {
-    // The gemini provider embeds asynchronously through the batch cycle to
-    // keep write latency and API cost characteristics unchanged.
-    return false;
-  }
   try {
     const vectors = await provider.embedPassages([content]);
     const vec = vectors?.[0];
@@ -33,8 +28,7 @@ export async function embedMemorySync(memoryId: number, content: string): Promis
       prisma,
       `UPDATE memories
          SET embedding=?, embedding_model=?, embedding_dim=?,
-             embedding_status='done', embedding_state_changed_at=unixepoch(),
-             embedding_error_kind=NULL, embedding_error_reason=NULL
+             embedding_status='done', embedding_state_changed_at=unixepoch()
        WHERE id=?`,
       JSON.stringify(vec),
       provider.model,
@@ -57,14 +51,11 @@ export interface LocalSweepResult {
 }
 
 /**
- * Backfill pending rows with the local provider (no batch records involved).
- * Used by `chest-index cycle` when CHEST_EMBEDDING_PROVIDER=local, and by
- * `chest-index reembed` after a provider switch.
+ * Backfill pending rows in-process. Used by `chest-index up --embed-cycle`
+ * and by `chest-index reembed` after a model change.
  */
 export async function runLocalPendingSweep(limit = 200): Promise<LocalSweepResult> {
   const provider = activeProvider();
-  if (provider.id !== "local") return { scanned: 0, embedded: 0 };
-
   const rows = await rawAll<{ id: number; content: string }>(
     prisma,
     `SELECT id, content FROM memories
@@ -89,8 +80,7 @@ export async function runLocalPendingSweep(limit = 200): Promise<LocalSweepResul
       prisma,
       `UPDATE memories
          SET embedding=?, embedding_model=?, embedding_dim=?,
-             embedding_status='done', embedding_state_changed_at=unixepoch(),
-             embedding_error_kind=NULL, embedding_error_reason=NULL
+             embedding_status='done', embedding_state_changed_at=unixepoch()
        WHERE id=? AND embedding_status='pending'`,
       JSON.stringify(vec),
       provider.model,

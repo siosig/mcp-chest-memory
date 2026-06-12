@@ -67,7 +67,7 @@ backend (remote), which runs the very same executor code.
 Requirements: Node.js ≥ 22.
 
 ```bash
-git clone https://github.com/<owner>/mcp-chest-memory.git
+git clone https://github.com/siosig/mcp-chest-memory.git
 cd mcp-chest-memory
 ./tools/install.sh
 ```

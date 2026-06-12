@@ -31,7 +31,7 @@ import { createRequire } from 'node:module';
 import { buildNodeHookSpecs, buildNodeHookSpecsRemote, wireHooks } from '../lib/hooks-install.js';
 
 const _require = createRequire(import.meta.url);
-const PKG_VERSION: string = (_require('../package.json') as { version: string }).version;
+const PKG_VERSION: string = (_require('../../package.json') as { version: string }).version;
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');

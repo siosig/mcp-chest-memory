@@ -87,7 +87,8 @@ feel the difference for yourself — getting started solo is very easy.
 - **Memory lifecycle** — ACT-R style activation decay, TTL expiry,
   archive-first deletion, supersession detection, sleep-mode consolidation
 - **Token-saving file reads** — `chest_read_smart` caches file chunk hashes
-  and returns only what changed since the last read
+  and returns only what changed since the last read; works in every profile
+  (the file is read client-side, only the diff-cache snapshot is persisted)
 - **Session continuity** — work-state snapshots survive context compaction
   (Claude Code PreCompact/SessionStart hooks)
 - **Three deployment profiles** — same tools, same semantics: single PC,
@@ -302,6 +303,15 @@ The MCP tool surface is identical in every profile: the stdio server either
 executes tools in-process (local) or forwards the same JSON payload to the
 backend (remote), which runs the very same executor code.
 
+`chest_read_smart` is special by necessity — it is the one tool that reads a
+client-side file. Its file I/O (confine to roots → stat → read → chunk → hash)
+therefore always runs in the stdio server, where the file and the client's
+declared roots actually exist; only its diff-cache snapshot is persisted, and
+that persistence flows through the same executor port (local SQLite, or the
+backend in remote mode). So the token-saving read works in every profile, the
+backend never reads a client file, and there is still no `if (remote)` branch
+inside the tool.
+
 
 ### Memory layers
 
@@ -459,8 +469,11 @@ automatic passes and drive everything via `chest-index` yourself.
   trusted network, or restrict it with `CHEST_BIND_HOST=127.0.0.1` plus the nginx + TLS
   (WAN) profile. The bundled nginx example sends HSTS and a restrictive CSP.
 - **File reads**: `chest_read_smart` only reads files inside the MCP client's declared
-  roots and is unavailable on the REST backend (which has no client roots), so a token
-  holder cannot read arbitrary files on the backend host.
+  roots, and the file is always read in the MCP-server process where those roots exist —
+  never on the backend. A `chest_read_smart` call POSTed directly to the REST backend is
+  refused (no client roots), so a token holder cannot read arbitrary files on the backend
+  host; remote mode forwards only the diff-cache snapshot rows, never a file path the
+  backend would open.
 
 ## Claude Code integration
 
@@ -538,7 +551,7 @@ rewrite memories.
 
 | Risk | Measure | Where |
 |---|---|---|
-| Arbitrary host file read via `chest_read_smart` | Reads are confined to the MCP client's declared roots, symlinks are resolved (`realpath`) before the check, and the same canonical path is used for `stat` and `read` (no check/use gap). Empty roots deny everything, so the REST backend (no client roots) refuses the tool. | `src/mcp/roots.ts` (`confinePath`), `src/mcp/read-smart.ts` |
+| Arbitrary host file read via `chest_read_smart` | Reads are confined to the MCP client's declared roots, symlinks are resolved (`realpath`) before the check, and the same canonical path is used for `stat` and `read` (no check/use gap). The read always runs in the stdio server (where the roots exist); in remote mode only the diff-cache snapshot rows reach the backend. Empty roots deny everything, so a `chest_read_smart` POSTed directly to the REST backend (no client roots) is still refused. | `src/mcp/roots.ts` (`confinePath`), `src/mcp/read-smart.ts`, `src/mcp/snapshot-store.ts` |
 | Full-store disclosure via wildcard input | All user values interpolated into SQL `LIKE` are escaped (`%`, `_`, `\`) with an explicit `ESCAPE` clause, so `query: "%"` matches literally instead of every row. | `src/lib/db/sql-escape.ts`, `chest_recall`, `chest_recall_file` |
 | Silent destruction of protected memory via `supersedes` | `supersedes` skips protected/pinned/goal targets and reports them; the low-level supersede guards the manual path too. | `chest_remember`, `src/lib/supersession.ts` |
 | Mass-archival via an argument-less `chest_forget` | The sweep archives at most `CHEST_FORGET_SWEEP_CAP` (default 200) per call and reports `affected`/`remaining`; protected layers stay exempt. | `chest_forget` |

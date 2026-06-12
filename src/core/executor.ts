@@ -25,6 +25,15 @@ import { handleChestForget } from "../mcp/tools/chest-forget.js";
 import { handleChestConsolidate } from "../mcp/tools/chest-consolidate.js";
 import { handleChestRecallFile } from "../mcp/tools/chest-recall-file.js";
 import { handleChestReadSmart } from "../mcp/tools/chest-read-smart.js";
+import { LocalSnapshotStore } from "../mcp/snapshot-store.js";
+import {
+  SnapshotGetInputSchema,
+  SnapshotPutInputSchema,
+  SnapshotTouchInputSchema,
+  handleSnapshotGet,
+  handleSnapshotPut,
+  handleSnapshotTouch,
+} from "../mcp/snapshot-ops.js";
 import { embedMemorySync } from "../lib/embedding/sync-embed.js";
 import { maybeRunMaintenance } from "../lib/maintenance.js";
 
@@ -37,6 +46,12 @@ export const TOOL_NAMES = [
   "chest_consolidate",
   "chest_recall_file",
   "chest_read_smart",
+  // Internal snapshot-cache RPCs backing RemoteSnapshotStore. Not registered as
+  // MCP tools (server.ts exposes only the public eight); reachable only through
+  // the executor port so remote-mode read_smart can persist its diff cache.
+  "_snapshot_get",
+  "_snapshot_put",
+  "_snapshot_touch",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -118,7 +133,20 @@ export class LocalExecutor implements ToolExecutor {
       case "chest_recall_file":
         return handleChestRecallFile(ChestRecallFileInputSchema.parse(args), this.server);
       case "chest_read_smart":
-        return handleChestReadSmart(ChestReadSmartInputSchema.parse(args), this.server);
+        // Defense in depth: on the REST backend (no client roots) this stays
+        // fail-closed before the store is ever touched. In local mode the MCP
+        // server calls handleReadSmart directly; this path is the backend guard.
+        return handleChestReadSmart(
+          ChestReadSmartInputSchema.parse(args),
+          this.server,
+          new LocalSnapshotStore(),
+        );
+      case "_snapshot_get":
+        return handleSnapshotGet(SnapshotGetInputSchema.parse(args));
+      case "_snapshot_put":
+        return handleSnapshotPut(SnapshotPutInputSchema.parse(args));
+      case "_snapshot_touch":
+        return handleSnapshotTouch(SnapshotTouchInputSchema.parse(args));
     }
   }
 }

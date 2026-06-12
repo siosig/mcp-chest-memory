@@ -10,6 +10,8 @@
 repeated questions keep decreasing, and it gets ever closer to an LLM that
 works just the way you like.**
 
+**As a welcome side effect, it also cuts your LLM token usage substantially.**
+
 **Local-first persistent memory for coding agents, served over MCP.**
 Your agent forgets everything when a session ends; chest gives it a durable,
 searchable "past self" — failures it must not repeat, decisions and their

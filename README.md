@@ -61,7 +61,7 @@ feel the difference for yourself — getting started solo is very easy.
 
 ## Quick start (single PC)
 
-Requirements: Node.js ≥ 22.
+Requirements: Node.js ≥ 24.
 
 No clone needed — one command sets everything up:
 
@@ -111,21 +111,17 @@ For a source install (asks before touching your data):
 
 Seed the memory store from every past session under `~/.claude/projects/`
 (memories, per-file edit history, events) and from each project's curated
-auto-memory files (`memory/*.md`), then backfill embeddings:
-
-Without a clone (npx install):
+auto-memory files (`memory/*.md`), then backfill embeddings — all in one
+command:
 
 ```bash
 npx -y -p mcp-chest-memory chest-memory-import --all
-npx -y -p mcp-chest-memory chest-index up --embed-cycle
 ```
 
-From a source checkout (also prefetches the model and drains the backlog):
-
-```bash
-./tools/bootstrap-import.sh             # import everything
-./tools/bootstrap-import.sh --dry-run   # parse and report, write nothing
-```
+The embedding model (~120 MB) is downloaded on first use if not already
+present. Pass `--skip-embed` to skip the embedding backfill (background
+maintenance will catch up later). Pass `--dry-run` to parse and report
+without writing anything.
 
 Re-running is safe: each session is wiped and re-inserted idempotently.
 

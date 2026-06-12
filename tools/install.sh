@@ -3,7 +3,7 @@
 #
 # Single-PC (default):
 #   ./tools/install.sh
-#     1. checks prerequisites (Node >= 22)
+#     1. checks prerequisites (Node >= 24)
 #     2. installs dependencies and builds dist/
 #     3. creates the data directory and initializes the SQLite database
 #     4. prefetches the local embedding model (skipped when cached)
@@ -60,9 +60,9 @@ CHANGED=()
 track() { CHANGED+=("$1  $2"); }  # track <[new]|[updated]> <path — note>
 
 # --- 1. prerequisites -------------------------------------------------------
-command -v node >/dev/null 2>&1 || fail "Node.js >= 22 is required" 1
+command -v node >/dev/null 2>&1 || fail "Node.js >= 24 is required" 1
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-[ "$NODE_MAJOR" -ge 22 ] || fail "Node.js >= 22 is required (found $(node -v))" 1
+[ "$NODE_MAJOR" -ge 24 ] || fail "Node.js >= 24 is required (found $(node -v))" 1
 
 PKG_MGR="npm"
 if command -v pnpm >/dev/null 2>&1; then PKG_MGR="pnpm"; fi

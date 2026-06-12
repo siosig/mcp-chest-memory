@@ -7,8 +7,8 @@
   what research concluded — across all your projects.**
 
 **With this MCP installed, your LLM grows together with you: mistakes and
-repeated questions keep decreasing, and it gets ever closer to an LLM that
-works just the way you like.**
+repeated questions keep decreasing, and the LLM increasingly behaves like
+an extension of yourself.**
 
 **As a welcome side effect, it also cuts your LLM token usage substantially.**
 

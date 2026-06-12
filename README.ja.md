@@ -82,6 +82,18 @@ Claude Code を再起動して試してください:
 ./tools/uninstall.sh --purge    # ~/.chest-memory も削除
 ```
 
+### 既存の Claude Code 履歴の取り込み
+
+`~/.claude/projects/` 配下の過去セッションすべて（記憶・ファイル編集履歴・
+イベント）を記憶ストアに取り込み、embedding を補完します:
+
+```bash
+./tools/bootstrap-import.sh             # 全件取り込み
+./tools/bootstrap-import.sh --dry-run   # 解析・件数レポートのみ（書き込みなし）
+```
+
+再実行しても安全です: セッション単位で消去 → 再挿入される冪等設計です。
+
 ### MCP ツール
 
 | ツール | 用途 |

@@ -87,6 +87,18 @@ Uninstall (asks before touching your data):
 ./tools/uninstall.sh --purge    # also delete ~/.chest-memory
 ```
 
+### Importing your existing Claude Code history
+
+Seed the memory store from every past session under `~/.claude/projects/`
+(memories, per-file edit history, events), then backfill embeddings:
+
+```bash
+./tools/bootstrap-import.sh             # import everything
+./tools/bootstrap-import.sh --dry-run   # parse and report, write nothing
+```
+
+Re-running is safe: each session is wiped and re-inserted idempotently.
+
 ### MCP tools
 
 | Tool | Purpose |

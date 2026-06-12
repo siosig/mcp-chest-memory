@@ -1,6 +1,6 @@
 {
   "name": "mcp-chest-memory",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Local-first agent memory MCP server — 6-layer structured memory with hybrid (FTS + vector) recall, offline multilingual embeddings, and a token-saving file diff cache. Optimized for Claude Code.",
   "author": "Daisuke ITO <siosig@gmail.com>",
   "homepage": "https://github.com/siosig/mcp-chest-memory#readme",
@@ -52,7 +52,7 @@
     "db:generate": "prisma generate",
     "db:deploy": "prisma migrate deploy",
     "db:status": "prisma migrate status",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build && chmod +x dist/mcp/server.js dist/http/server.js dist/cli/chest-index.js dist/bin/*.js"
   },
   "keywords": [
     "mcp",

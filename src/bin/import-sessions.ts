@@ -10,7 +10,7 @@
 //
 // All inserts are IDEMPOTENT: existing data for a given session_id is wiped before re-insert.
 
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { prisma, rawRun, lastInsertId, ensurePrismaInitialized, shutdownPrisma } from '../lib/db/prisma-client.js';
@@ -112,9 +112,99 @@ async function insertSessionData(
   return counts;
 }
 
+// ── Remote mode ──────────────────────────────────────────────────────────────
+// When CHEST_MODE=remote, read each JSONL file locally and POST its content to
+// the remote backend via POST /api/hooks/sync-session. No local DB is used.
+// Memory-file import and embedding backfill are skipped (no remote endpoint).
+
+async function mainRemote(args: string[]): Promise<void> {
+  const { syncSessionRemote } = await import('../lib/hooks-remote.js');
+
+  const dryRun = args.includes('--dry-run');
+  const scanAll = args.includes('--all');
+  const sessionFileIdx = args.indexOf('--session-file');
+  const sessionFile = sessionFileIdx >= 0 ? args[sessionFileIdx + 1] : null;
+  const projectArgs = args.filter((a, i) => !a.startsWith('--') && (sessionFileIdx < 0 || i !== sessionFileIdx + 1));
+
+  if (sessionFile) {
+    let content: string;
+    try { content = readFileSync(sessionFile, 'utf8'); } catch (e: unknown) {
+      console.error(`[error] cannot read ${sessionFile}: ${e instanceof Error ? e.message : String(e)}`);
+      process.exit(1);
+    }
+    if (!content.trim()) { console.log(`[skip] empty file: ${sessionFile}`); return; }
+    if (dryRun) { console.log(`[dry] would POST ${sessionFile} to remote`); return; }
+    await syncSessionRemote(content, '');
+    console.log(`[ok] ${sessionFile} → remote`);
+    return;
+  }
+
+  let projectDirs: string[] = [];
+  if (scanAll) {
+    try {
+      projectDirs = readdirSync(CLAUDE_PROJECTS)
+        .map((d) => join(CLAUDE_PROJECTS, d))
+        .filter((p) => { try { return statSync(p).isDirectory(); } catch { return false; } });
+    } catch (e) {
+      console.error(`Cannot scan ${CLAUDE_PROJECTS}:`, e);
+      process.exit(1);
+    }
+  } else {
+    projectDirs = projectArgs;
+  }
+
+  if (projectDirs.length === 0) { usage(); process.exit(1); }
+
+  let ok = 0, skipped = 0, errors = 0;
+
+  for (const projectDir of projectDirs) {
+    const files = collectJsonlFiles(projectDir);
+    if (files.length === 0) { console.log(`[skip] no .jsonl in ${projectDir}`); continue; }
+
+    const rawDirName = projectDir.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? 'unknown';
+    console.log(`\n=== Project: ${rawDirName} (${files.length} session files) ===`);
+
+    for (const f of files) {
+      let content: string;
+      try { content = readFileSync(f, 'utf8'); } catch (e: unknown) {
+        errors++;
+        console.warn(`  [error] ${f}: ${e instanceof Error ? e.message : String(e)}`);
+        continue;
+      }
+      if (!content.trim()) { skipped++; continue; }
+      if (dryRun) {
+        console.log(`  [dry] would POST ${f} to remote`);
+        skipped++;
+        continue;
+      }
+      try {
+        await syncSessionRemote(content, '');
+        ok++;
+        console.log(`  [ok] ${f}`);
+      } catch (e: unknown) {
+        errors++;
+        console.warn(`  [error] ${f}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  console.log(`\n=== Summary ===`);
+  console.log(`  sent:    ${ok}${dryRun ? ' (DRY RUN)' : ''}`);
+  console.log(`  skipped: ${skipped}`);
+  console.log(`  errors:  ${errors}`);
+}
+
+// ── Local mode ────────────────────────────────────────────────────────────────
+
 async function main() {
   const args = process.argv.slice(2);
   if (args.includes('-h') || args.includes('--help')) { usage(); return; }
+
+  if ((process.env['CHEST_MODE'] ?? 'local') === 'remote') {
+    await mainRemote(args);
+    return;
+  }
+
   const dryRun = args.includes('--dry-run');
   const scanAll = args.includes('--all');
   const skipEmbed = args.includes('--skip-embed');

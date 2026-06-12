@@ -51,6 +51,20 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  // Remote mode: delegate snapshot save to the remote backend.
+  if ((process.env['CHEST_MODE'] ?? 'local') === 'remote') {
+    try {
+      const { precompactRemote } = await import('../lib/hooks-remote.js');
+      const saved = await precompactRemote(sessionId);
+      const elapsed = Date.now() - startedAt;
+      log(`remote snapshot ${saved ? 'saved' : 'skipped (no session data)'} (session=${sessionId}, trigger=${payload.trigger ?? '?'}, ${elapsed}ms)`);
+    } catch (e: unknown) {
+      const elapsed = Date.now() - startedAt;
+      log(`remote precompact error (session=${sessionId}, ${elapsed}ms): ${e instanceof Error ? e.message : String(e)}`);
+    }
+    process.exit(0);
+  }
+
   try {
     // DB imports are deferred until after payload validation so a missing DATABASE_URL
     // logs gracefully instead of crashing immediately.

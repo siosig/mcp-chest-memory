@@ -154,9 +154,19 @@ export function isAutomatedSession(firstUserText: string): boolean {
   return /^\s*<scheduled-task|^\s*<automated-/.test(firstUserText);
 }
 
+/** Parse a session from raw JSONL text (used by the remote hook endpoint). */
+export function parseSessionContent(content: string): ParsedSession | null {
+  const lines = content.split('\n').filter(Boolean);
+  return parseLines(lines);
+}
+
 export function parseSessionFile(jsonlPath: string): ParsedSession | null {
   const raw = readFileSync(jsonlPath, 'utf8');
   const lines = raw.split('\n').filter(Boolean);
+  return parseLines(lines);
+}
+
+function parseLines(lines: string[]): ParsedSession | null {
   if (lines.length === 0) return null;
 
   let session_id = '';

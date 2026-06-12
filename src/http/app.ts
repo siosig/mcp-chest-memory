@@ -12,6 +12,8 @@ import { ZodError } from "zod";
 import { LocalExecutor, isToolName, type ToolExecutor } from "../core/executor.js";
 import { prisma } from "../lib/db/prisma-client.js";
 import { activeProvider } from "../lib/embedding/provider.js";
+import { saveSnapshot, loadSnapshot } from "../lib/snapshot/store.js";
+import { importSessionContent } from "../lib/session-import.js";
 import { ChestError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 
@@ -69,6 +71,7 @@ export function createApp(opts: CreateAppOptions): Hono {
     return c.json(body, dbOk ? 200 : 503);
   });
 
+  // Bearer auth covers all /api/* routes.
   app.use(
     "/api/*",
     bearerAuth({
@@ -77,12 +80,88 @@ export function createApp(opts: CreateAppOptions): Hono {
       noAuthenticationHeaderMessage: errorBody("UNAUTHORIZED", "Missing Authorization header"),
       invalidAuthenticationHeaderMessage: errorBody("UNAUTHORIZED", "Malformed Authorization header"),
     }),
-    bodyLimit({
-      maxSize: 1024 * 1024,
-      onError: (c) => c.json(errorBody("PAYLOAD_TOO_LARGE", "Request body exceeds 1MB"), 413),
-    }),
   );
 
+  // Tool calls: 1 MB body limit (JSON tool payloads are small).
+  app.use("/api/tools/*", bodyLimit({
+    maxSize: 1024 * 1024,
+    onError: (c) => c.json(errorBody("PAYLOAD_TOO_LARGE", "Request body exceeds 1MB"), 413),
+  }));
+
+  // Hook: session JSONL can be several MB; allow up to 50 MB.
+  app.use("/api/hooks/sync-session", bodyLimit({
+    maxSize: 50 * 1024 * 1024,
+    onError: (c) => c.json(errorBody("PAYLOAD_TOO_LARGE", "Request body exceeds 50MB"), 413),
+  }));
+
+  // Hook: snapshot/precompact payloads are tiny.
+  app.use("/api/hooks/precompact", bodyLimit({
+    maxSize: 64 * 1024,
+    onError: (c) => c.json(errorBody("PAYLOAD_TOO_LARGE", "Request body exceeds 64KB"), 413),
+  }));
+
+  // ── Hook endpoints ────────────────────────────────────
+  // POST /api/hooks/sync-session
+  // Body: raw JSONL text (Content-Type: text/plain)
+  // Header: X-Session-Id — used only for logging
+  app.post("/api/hooks/sync-session", async (c) => {
+    const headerSessionId = c.req.header("X-Session-Id") ?? "unknown";
+    let content: string;
+    try {
+      content = await c.req.text();
+    } catch {
+      return c.json(errorBody("VALIDATION_ERROR", "Could not read request body"), 400);
+    }
+    if (!content.trim()) {
+      return c.json({ ok: true, skipped: true, reason: "empty content" });
+    }
+    try {
+      const result = await importSessionContent(content);
+      if (!result) return c.json({ ok: true, skipped: true, reason: "empty or invalid session" });
+      logger.info({ headerSessionId, ...result }, "hook:sync-session imported");
+      return c.json({ ok: true, ...result });
+    } catch (e) {
+      logger.error({ err: e instanceof Error ? e.message : String(e), headerSessionId }, "hook:sync-session failed");
+      return c.json(errorBody("INTERNAL_ERROR", "Session import failed"), 500);
+    }
+  });
+
+  // POST /api/hooks/precompact
+  // Body: { session_id: string }
+  app.post("/api/hooks/precompact", async (c) => {
+    let body: { session_id?: string };
+    try {
+      body = await c.req.json() as { session_id?: string };
+    } catch {
+      return c.json(errorBody("VALIDATION_ERROR", "Request body must be JSON"), 400);
+    }
+    const sessionId = body.session_id;
+    if (!sessionId) return c.json(errorBody("VALIDATION_ERROR", "session_id is required"), 400);
+    try {
+      const text = await saveSnapshot(sessionId);
+      const saved = text !== "";
+      logger.info({ sessionId, saved }, "hook:precompact");
+      return c.json({ ok: true, saved });
+    } catch (e) {
+      logger.error({ err: e instanceof Error ? e.message : String(e), sessionId }, "hook:precompact failed");
+      return c.json(errorBody("INTERNAL_ERROR", "Snapshot save failed"), 500);
+    }
+  });
+
+  // GET /api/hooks/snapshot/:sessionId
+  app.get("/api/hooks/snapshot/:sessionId", async (c) => {
+    const sessionId = c.req.param("sessionId");
+    try {
+      const text = await loadSnapshot(sessionId);
+      if (text === null) return c.json(errorBody("NOT_FOUND", "No snapshot found for this session"), 404);
+      return c.json({ ok: true, text });
+    } catch (e) {
+      logger.error({ err: e instanceof Error ? e.message : String(e), sessionId }, "hook:snapshot failed");
+      return c.json(errorBody("INTERNAL_ERROR", "Snapshot load failed"), 500);
+    }
+  });
+
+  // ── Tool endpoint ─────────────────────────────────────
   app.post("/api/tools/:toolName", async (c) => {
     const toolName = c.req.param("toolName");
     if (!isToolName(toolName)) {

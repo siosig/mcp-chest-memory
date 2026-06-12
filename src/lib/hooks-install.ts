@@ -59,7 +59,7 @@ function markersFor(event: HookEvent): string[] {
   return [script, npxBin];
 }
 
-/** Hook specs for a git-clone install: absolute node commands against dist/. */
+/** Hook specs for a local install: absolute node commands against dist/. */
 export function buildNodeHookSpecs(opts: {
   distBinDir: string;
   dataDir?: string;
@@ -77,6 +77,32 @@ export function buildNodeHookSpecs(opts: {
   return HOOK_EVENTS.map((event) => ({
     event,
     command: `${prefix}node ${shellQuote(join(opts.distBinDir, HOOK_BINS[event].script))}`,
+    markers: markersFor(event),
+  }));
+}
+
+/**
+ * Hook specs for a remote (Docker/nginx) install.
+ * CHEST_MODE, CHEST_REMOTE_URL, and CHEST_API_TOKEN are embedded so the hooks
+ * forward session data to the remote backend instead of a local DB.
+ */
+export function buildNodeHookSpecsRemote(opts: {
+  distBinDir: string;
+  remoteUrl: string;
+  apiToken: string;
+  dataDir?: string;
+}): HookSpec[] {
+  const env = [
+    'CHEST_MODE=remote',
+    `CHEST_REMOTE_URL=${shellQuote(opts.remoteUrl)}`,
+    `CHEST_API_TOKEN=${shellQuote(opts.apiToken)}`,
+    opts.dataDir ? `CHEST_DATA_DIR=${shellQuote(opts.dataDir)}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return HOOK_EVENTS.map((event) => ({
+    event,
+    command: `${env} node ${shellQuote(join(opts.distBinDir, HOOK_BINS[event].script))}`,
     markers: markersFor(event),
   }));
 }

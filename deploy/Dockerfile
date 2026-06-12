@@ -34,13 +34,10 @@ COPY --from=build /app/package.json ./package.json
 ENV CHEST_DATA_DIR=/data
 ENV CHEST_DB_PATH=/data/chest.db
 ENV CHEST_PORT=8765
-# Run as the host service user (uid 993 / gid 980 = dainipc-service) so the
-# container process can write to the host bind-mount without sudo.
-# /app is pre-owned by the same uid; /data ownership is set by the bind mount.
-RUN mkdir -p /data && chown -R 993:980 /data /app
+RUN mkdir -p /data && chown -R node:node /data
 VOLUME /data
 EXPOSE 8765
-USER 993:980
+USER node
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD curl -fsS http://127.0.0.1:8765/healthz || exit 1

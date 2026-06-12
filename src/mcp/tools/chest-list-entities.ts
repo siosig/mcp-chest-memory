@@ -1,4 +1,4 @@
-import { prisma, rawAll, rawGet } from "../../lib/db/prisma-client.js";
+import { prisma, rawAll } from "../../lib/db/prisma-client.js";
 import type { ChestListEntitiesInput } from "../../schemas/chest-list-entities.js";
 import { instantFromUnixSeconds } from "../../utils/temporal.js";
 
@@ -60,12 +60,9 @@ export async function handleChestListEntities(
 
   const rows = await rawAll<EntityRow>(prisma, sql, ...params);
 
-  const totalRow = await rawGet<{ c: number }>(
-    prisma,
-    kind ? "SELECT COUNT(*) as c FROM entities WHERE kind = ?" : "SELECT COUNT(*) as c FROM entities",
-    ...(kind ? [kind] : []),
-  );
-  const total = Number(totalRow?.c ?? 0);
+  // Count via the ORM (the ranked SELECT above stays raw — it relies on a
+  // computed ORDER BY expression the ORM cannot express).
+  const total = await prisma.entity.count(kind ? { where: { kind } } : undefined);
 
   return JSON.stringify({
     ok: true,

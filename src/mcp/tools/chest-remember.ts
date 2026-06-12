@@ -151,19 +151,31 @@ export async function handleChestRemember(args: ChestRememberInput): Promise<str
   );
   const newId = await lastInsertId(prisma);
 
-  await rawRun(
-    prisma,
-    "INSERT INTO events (entity_id, kind, payload) VALUES (?, ?, ?)",
-    entityId,
-    "memory_stored",
-    JSON.stringify({ layer, memory_id: newId }),
-  );
+  await prisma.event.create({
+    data: {
+      entityId: BigInt(entityId),
+      kind: "memory_stored",
+      payload: JSON.stringify({ layer, memory_id: newId }),
+    },
+  });
 
   // Explicit supersedes: archive the named older memories immediately (method=manual).
+  // Protected/pinned/goal targets are never archived — a supersedes list must not
+  // be a way to silently destroy protected memory. Skipped ids are reported back.
   const superseded: number[] = [];
+  const skippedProtected: number[] = [];
   if (args.supersedes && args.supersedes.length > 0) {
     for (const oldId of args.supersedes) {
-      if (oldId !== newId && (await supersede(oldId, newId, null, "manual", nowSec))) {
+      if (oldId === newId) continue;
+      const target = await prisma.memory.findFirst({
+        where: { id: BigInt(oldId), archivedAt: null },
+        select: { protected: true, importance: true, layer: true },
+      });
+      if (target && (target.protected === 1 || target.importance >= 0.9 || target.layer === "goal")) {
+        skippedProtected.push(oldId);
+        continue;
+      }
+      if (await supersede(oldId, newId, null, "manual", nowSec)) {
         superseded.push(oldId);
       }
     }
@@ -179,5 +191,6 @@ export async function handleChestRemember(args: ChestRememberInput): Promise<str
     pinned: importance >= 0.9,
     momentum: { score: mom.score, band: mom.band },
     ...(superseded.length > 0 ? { superseded } : {}),
+    ...(skippedProtected.length > 0 ? { skipped_protected: skippedProtected } : {}),
   });
 }

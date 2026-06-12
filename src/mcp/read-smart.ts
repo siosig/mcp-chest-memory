@@ -3,10 +3,12 @@
 // or only the changed chunks + unchanged summary on real modifications.
 
 import { readFileSync, statSync } from 'node:fs';
+import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { prisma, rawAll, rawGet, rawRun } from '../lib/db/prisma-client.js';
 import { chunkFile, hashFile, type Chunk } from '../lib/file-chunker.js';
 import { instantFromUnixSeconds } from '../utils/temporal.js';
 import { estimateTokens, TOKENS_PER_CHAR } from '../lib/token-budget.js';
+import { confinePath, fetchRoots } from './roots.js';
 
 interface SnapshotRow {
   path: string;
@@ -31,15 +33,30 @@ function toMeta(c: Chunk): StoredChunkMeta {
 }
 
 export async function handleReadSmart(
-  args: { path: string; force?: boolean }
+  args: { path: string; force?: boolean },
+  server: Server,
 ): Promise<string> {
-  const { path, force = false } = args;
+  const { path: requestedPath, force = false } = args;
+
+  // Security: confine the read to the MCP client's declared roots, resolving
+  // symlinks. Fails closed when no roots exist (e.g. the REST backend, which has
+  // no client) so a token holder cannot read arbitrary host files. The returned
+  // canonical path is used for BOTH stat and read — no second resolution, so the
+  // check and the read observe the same path (no TOCTOU window).
+  const roots = await fetchRoots(server);
+  const path = confinePath(requestedPath, roots);
+  if (path === null) {
+    return JSON.stringify({
+      ok: false,
+      error: `Access denied: path is outside the allowed roots (or no roots are declared): ${requestedPath}`,
+    });
+  }
 
   let stat: ReturnType<typeof statSync>;
   try {
     stat = statSync(path);
   } catch {
-    return JSON.stringify({ ok: false, error: `File not found: ${path}` });
+    return JSON.stringify({ ok: false, error: `File not found: ${requestedPath}` });
   }
 
   const mtime = Math.floor(stat.mtimeMs / 1000);

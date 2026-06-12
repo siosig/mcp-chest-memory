@@ -12,8 +12,9 @@
 // `npx -y chest-memory-*` entry from an older setup), and left alone when
 // identical.
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { writeFileAtomic } from './fs-atomic.js';
 
 export type HookEvent = 'Stop' | 'PreCompact' | 'SessionStart';
 
@@ -94,8 +95,10 @@ function loadSettings(settingsPath: string): SettingsJson {
 }
 
 function saveSettings(settingsPath: string, settings: SettingsJson): void {
-  mkdirSync(dirname(settingsPath), { recursive: true });
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8');
+  // Atomic + owner-only: settings.json carries MCP env (incl. CHEST_API_TOKEN).
+  // An interrupted write must never truncate the user's existing settings.
+  mkdirSync(dirname(settingsPath), { recursive: true, mode: 0o700 });
+  writeFileAtomic(settingsPath, JSON.stringify(settings, null, 2) + '\n', 0o600);
 }
 
 function findEntry(

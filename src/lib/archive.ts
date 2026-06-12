@@ -4,7 +4,12 @@
 // Invariant: no memory is ever physically deleted. Every "removal" sets archived_at.
 // Idempotent — `WHERE archived_at IS NULL` prevents double-archive.
 
-import { prisma, rawGet, rawRun, type RawClient } from "./db/prisma-client.js";
+import type { Prisma } from "@prisma/client";
+import { prisma } from "./db/prisma-client.js";
+
+// Either the root client or a transaction handle; both expose the ORM model
+// delegates used below. PrismaClient is assignable to Prisma.TransactionClient.
+type OrmClient = Prisma.TransactionClient;
 
 export type ArchiveReason = "forget" | "cold" | "expired" | "dropped";
 
@@ -18,34 +23,34 @@ const REASON_EVENT: Record<ArchiveReason, string> = {
 /**
  * Archive a single memory (idempotent). Returns true if this call newly archived it.
  * Records the appropriate event with a reason-tagged payload.
+ *
+ * Uses the Prisma ORM (no raw SQL): `updateMany` with the `archivedAt: null`
+ * guard keeps the idempotent semantics while making column names schema-typed.
  */
 export async function archiveMemory(
   memoryId: number,
   reason: ArchiveReason,
   nowSec?: number,
-  client: RawClient = prisma,
+  client: OrmClient = prisma,
 ): Promise<boolean> {
   const now = nowSec ?? Math.floor(Date.now() / 1000);
-  const changes = await rawRun(
-    client,
-    "UPDATE memories SET archived_at = ? WHERE id = ? AND archived_at IS NULL",
-    now,
-    memoryId,
-  );
-  if (changes === 0) return false; // already archived or missing
+  const { count } = await client.memory.updateMany({
+    where: { id: BigInt(memoryId), archivedAt: null },
+    data: { archivedAt: BigInt(now) },
+  });
+  if (count === 0) return false; // already archived or missing
 
-  const row = await rawGet<{ entity_id: number }>(
-    client,
-    "SELECT entity_id FROM memories WHERE id = ?",
-    memoryId,
-  );
-  await rawRun(
-    client,
-    "INSERT INTO events (entity_id, kind, payload) VALUES (?, ?, ?)",
-    row?.entity_id ?? null,
-    REASON_EVENT[reason],
-    JSON.stringify({ reason, memory_id: memoryId }),
-  );
+  const row = await client.memory.findUnique({
+    where: { id: BigInt(memoryId) },
+    select: { entityId: true },
+  });
+  await client.event.create({
+    data: {
+      entityId: row?.entityId ?? null,
+      kind: REASON_EVENT[reason],
+      payload: JSON.stringify({ reason, memory_id: memoryId }),
+    },
+  });
   return true;
 }
 

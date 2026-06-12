@@ -31,6 +31,10 @@ server {
     add_header X-Content-Type-Options nosniff always;
     add_header X-Frame-Options DENY always;
     add_header Referrer-Policy no-referrer always;
+    # HSTS: prevent first-connection SSL-strip downgrade on this TLS-only host.
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    # Restrictive CSP: this host only serves a JSON API, never HTML/scripts.
+    add_header Content-Security-Policy "default-src 'none'" always;
 
     # Tool payloads are small; match the backend's 1MB body limit.
     client_max_body_size 1m;

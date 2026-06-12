@@ -6,6 +6,8 @@
 // MCP semantics: client owns the root list, server is informed. We refresh on demand
 // (lazily on first use) and on roots/list_changed notification.
 
+import { realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
@@ -17,6 +19,13 @@ interface Root {
 let cachedRoots: Root[] | null = null;
 let lastFetched = 0;
 const STALE_MS = 60_000; // re-fetch at most once a minute
+
+// Test-only: clear the roots cache so a test can change the client's roots
+// between cases. Not used by production code paths.
+export function resetRootsCache(): void {
+  cachedRoots = null;
+  lastFetched = 0;
+}
 
 export async function fetchRoots(server: Server): Promise<Root[]> {
   const now = Date.now();
@@ -57,6 +66,10 @@ export function rootPathFromUri(uri: string): string {
 }
 
 // Returns true if filePath is inside any of the roots (case-insensitive on win32).
+//
+// NOTE: empty roots → true (allow-all). This is a *recall biasing* helper and
+// must NOT be used for security decisions. For file-read confinement use
+// confinePath(), which fails CLOSED on empty roots.
 export function isInsideRoots(filePath: string, roots: Root[]): boolean {
   if (roots.length === 0) return true; // no roots → no filtering
   const norm = process.platform === 'win32' ? filePath.toLowerCase().replace(/\\/g, '/') : filePath;
@@ -65,4 +78,26 @@ export function isInsideRoots(filePath: string, roots: Root[]): boolean {
     const rpn = process.platform === 'win32' ? rp.toLowerCase().replace(/\\/g, '/') : rp;
     return norm.startsWith(rpn);
   });
+}
+
+// Security-grade path confinement for file reads (fails CLOSED).
+//
+// Resolves the requested path to an absolute, symlink-free canonical path and
+// returns it ONLY if it lies inside at least one declared root. Returns null
+// when the path escapes every root, when it cannot be canonicalized (e.g. does
+// not exist), or when there are NO roots at all. The empty-roots case denying
+// every read is what makes the REST backend (which has no MCP client and thus
+// no roots) refuse chest_read_smart without any deployment conditional.
+//
+// Callers MUST use the returned canonical path for both stat and read so the
+// security check and the actual read observe the same path (no TOCTOU gap).
+export function confinePath(requestedPath: string, roots: Root[]): string | null {
+  if (roots.length === 0) return null; // fail closed: no roots → nothing readable
+  let canonical: string;
+  try {
+    canonical = realpathSync(resolve(requestedPath));
+  } catch {
+    return null; // unresolvable (missing / broken symlink) → deny
+  }
+  return isInsideRoots(canonical, roots) ? canonical : null;
 }

@@ -18,6 +18,11 @@ export const EnvSchema = z.object({
   CHEST_API_TOKEN: z.string().optional(),
   /** REST backend listen port. */
   CHEST_PORT: z.coerce.number().int().positive().default(8765),
+  /**
+   * REST backend listen host. Defaults to 0.0.0.0 (unchanged behavior); set to
+   * 127.0.0.1 to bind loopback only when a reverse proxy fronts the backend.
+   */
+  CHEST_BIND_HOST: z.string().default("0.0.0.0"),
   /** Min seconds between background maintenance passes (decay/sweeps). */
   CHEST_MAINTENANCE_INTERVAL_SEC: z.coerce.number().int().positive().default(600),
   /** Set to "0" to disable write-triggered background maintenance. */

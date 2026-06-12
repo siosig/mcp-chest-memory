@@ -41,9 +41,9 @@ flowchart LR
     MCP -.->|"LAN: REST 直結"| API
     API --> DB2[(ホスト永続化 chest.db)]
 
-    subgraph maintenance [定期メンテナンス]
-        IDX[chest-index up --all] --> DB
-        IDX2[バックエンドホスト側 chest-index] --> DB2
+    subgraph maintenance [バックグラウンドメンテナンス - 保存後に自動実行]
+        IDX[減衰 / スイープ / embedding 補完] --> DB
+        IDX2[バックエンド内でも同様] --> DB2
     end
 ```
 
@@ -106,9 +106,6 @@ Claude Code を再起動して試してください:
 - **`/chest-memory`** で直前の文脈を明示的に保存、
   **`/chest-memory status`** でストアの状態を確認できます
 - **「これ前にもやらなかったっけ？」** と聞くと recall を強制できます
-- **初回のみ（推奨）**: メンテナンスの定期実行を設定すると減衰・ランキングが
-  最新に保たれます — 例: cron に
-  `*/10 * * * * cd <repo> && node dist/cli/chest-index.js up --all`
 - **任意**: `chest-memory-setup --yes` で Claude Code のフック（Stop 時の
   セッション自動キャプチャ、コンパクション前後のスナップショット保存/復元）を
   一括設定できます
@@ -125,11 +122,11 @@ Claude Code を再起動して試してください:
   recall、エラー解決後・意思決定後に保存が自動で行われます
 - **フック設定済みの場合**: Stop のたびにセッションがキャプチャされ、
   作業状態スナップショットがコンテキスト圧縮を跨いで保持されます
-- **定期実行の `chest-index up --all` のたび**: activation 減衰の再計算、
-  TTL 失効と archive スイープ、supersession 検出、コールドな記憶の統合
-  （consolidation）、pending 行の embedding 補完。定期実行を設定しなくても
-  保存・recall は動作します — ランキングの減衰精度が落ち、コールドな記憶が
-  圧縮されないだけです
+- **保存後のバックグラウンド**（`CHEST_MAINTENANCE_INTERVAL_SEC`、既定 10 分に
+  1 回へスロットリング）: activation 減衰の再計算、TTL 失効と archive
+  スイープ、supersession 検出、コールドな記憶の統合（consolidation）、
+  pending 行の embedding 補完。スケジューラの設定は不要です。手動実行用に
+  `chest-index up` も引き続き使えます
 
 ### MCP ツール
 
@@ -255,10 +252,13 @@ composite = (0.45·relevance + 0.25·heat + 0.15·momentum + 0.15·importance)
 
 ### メンテナンス
 
-`chest-index up --all`（cron や systemd timer で 10 分ごと程度に実行）が
-次を実行します: activation 再計算 → 減衰/archive スイープ → supersession
-スイープ → pending 行の embedding 補完。全フェーズはファイルロックで
-排他されます。
+メンテナンスは自走します: 保存のあと、サーバーがバックグラウンドで
+（応答を遅らせずに）activation 再計算 → 減衰/archive スイープ →
+supersession スイープ → pending 行の embedding 補完を実行します。
+実行は `CHEST_MAINTENANCE_INTERVAL_SEC`（既定 600 秒）に 1 回へ
+スロットリングされ、ファイルロックで手動の `chest-index up` とも
+排他されます。`CHEST_AUTO_MAINTENANCE=0` で自動実行を止め、すべて
+`chest-index` で手動運用することもできます。
 
 ## 設定リファレンス
 
@@ -271,7 +271,9 @@ composite = (0.45·relevance + 0.25·heat + 0.15·momentum + 0.15·importance)
 | `CHEST_API_TOKEN` | — | 共有 Bearer トークン（未設定だとバックエンドは起動拒否） |
 | `CHEST_PORT` | `8765` | REST バックエンドの待受ポート |
 | `CHEST_MAX_CONTENT_CHARS` | `8000` | 記憶本文の最大長 |
-| `CHEST_SWEEP_LIMIT` | `500` | `chest-index` の embedding スイープ 1 回あたりの最大行数 |
+| `CHEST_SWEEP_LIMIT` | `500` | embedding スイープ 1 回あたりの最大行数 |
+| `CHEST_MAINTENANCE_INTERVAL_SEC` | `600` | バックグラウンドメンテナンスの最短実行間隔（秒） |
+| `CHEST_AUTO_MAINTENANCE` | `1` | `0` で保存時トリガーの自動メンテナンスを無効化 |
 
 ## Claude Code 連携
 

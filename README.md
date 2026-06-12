@@ -46,9 +46,9 @@ flowchart LR
     MCP -.->|"LAN: direct REST"| API
     API --> DB2[(host-mounted chest.db)]
 
-    subgraph maintenance [Periodic maintenance]
-        IDX[chest-index up --all] --> DB
-        IDX2[chest-index inside backend host] --> DB2
+    subgraph maintenance [Background maintenance - auto after writes]
+        IDX[decay / sweeps / embedding backfill] --> DB
+        IDX2[same, inside the backend] --> DB2
     end
 ```
 
@@ -111,9 +111,6 @@ own. Everything below is optional:
 - Invoke **`/chest-memory`** to save the recent context explicitly,
   or **`/chest-memory status`** to check store health
 - Ask **"did we hit this before?"** to force a recall
-- **One-time (recommended)**: schedule the maintenance run so decay and
-  ranking stay fresh — e.g. a cron entry:
-  `*/10 * * * * cd <repo> && node dist/cli/chest-index.js up --all`
 - **Optional**: `chest-memory-setup --yes` wires the Claude Code hooks
   (session auto-capture on Stop, snapshot save/restore around compaction)
 
@@ -131,11 +128,12 @@ own. Everything below is optional:
   are made
 - **With hooks enabled**: every session is captured on Stop, and work-state
   snapshots survive context compaction
-- **On each scheduled `chest-index up --all`**: activation decay recompute,
-  TTL expiry and archive sweep, supersession detection, consolidation of
-  cold memories, and embedding backfill for any pending rows. If you skip
-  scheduling this, saving and recall still work — rankings just decay less
-  accurately and cold memories are never compressed
+- **In the background after saves** (throttled, at most once per
+  `CHEST_MAINTENANCE_INTERVAL_SEC`, default 10 min): activation decay
+  recompute, TTL expiry and archive sweep, supersession detection,
+  consolidation of cold memories, and embedding backfill for any pending
+  rows. No scheduler setup is required; `chest-index up` remains available
+  for manual runs
 
 ### MCP tools
 
@@ -263,10 +261,13 @@ composite = (0.45·relevance + 0.25·heat + 0.15·momentum + 0.15·importance)
 
 ### Maintenance
 
-`chest-index up --all` (run it from cron or a systemd timer, e.g. every 10
-minutes) executes: activation recompute → decay/archive sweep → supersession
-sweep → embedding backfill of pending rows. All phases are guarded by a file
-lock.
+Maintenance is self-driving: after a save, the server runs (in the
+background, without delaying the response) activation recompute →
+decay/archive sweep → supersession sweep → embedding backfill of pending
+rows. Passes are throttled to once per `CHEST_MAINTENANCE_INTERVAL_SEC`
+(default 600 s) and guarded by a file lock, so they never overlap a manual
+`chest-index up` run. Set `CHEST_AUTO_MAINTENANCE=0` to disable the
+automatic passes and drive everything via `chest-index` yourself.
 
 ## Configuration reference
 
@@ -279,7 +280,9 @@ lock.
 | `CHEST_API_TOKEN` | — | Shared Bearer token (backend refuses to start without it) |
 | `CHEST_PORT` | `8765` | REST backend listen port |
 | `CHEST_MAX_CONTENT_CHARS` | `8000` | Max memory content length |
-| `CHEST_SWEEP_LIMIT` | `500` | Max rows backfilled per `chest-index` embedding sweep |
+| `CHEST_SWEEP_LIMIT` | `500` | Max rows backfilled per embedding sweep |
+| `CHEST_MAINTENANCE_INTERVAL_SEC` | `600` | Min seconds between background maintenance passes |
+| `CHEST_AUTO_MAINTENANCE` | `1` | Set `0` to disable write-triggered maintenance |
 
 ## Claude Code integration
 

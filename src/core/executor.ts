@@ -27,6 +27,7 @@ import { handleChestConsolidate } from "../mcp/tools/chest-consolidate.js";
 import { handleChestRecallFile } from "../mcp/tools/chest-recall-file.js";
 import { handleChestReadSmart } from "../mcp/tools/chest-read-smart.js";
 import { embedMemorySync } from "../lib/embedding/sync-embed.js";
+import { maybeRunMaintenance } from "../lib/maintenance.js";
 
 export const TOOL_NAMES = [
   "chest_remember",
@@ -104,6 +105,10 @@ export class LocalExecutor implements ToolExecutor {
         const input = ChestRememberInputSchema.parse(args);
         const out = await handleChestRemember(input);
         await syncEmbedFromResult(out, input.content);
+        // Maintenance (decay, supersession, archive sweeps) rides on writes
+        // instead of a scheduler. Deliberately not awaited: the save returns
+        // immediately; the pass is throttled and lock-guarded internally.
+        void maybeRunMaintenance();
         return out;
       }
       case "chest_recall":

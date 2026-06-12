@@ -20,7 +20,8 @@ db.close();
 process.env.DATABASE_URL = `file:${file}`;
 process.env.CHEST_DB_PATH = file;
 process.env.CHEST_DATA_DIR = dir;
-// Never trigger a model download from unit tests.
+// Never trigger a model download or background maintenance from unit tests.
 process.env.CHEST_SYNC_EMBED = "0";
+process.env.CHEST_AUTO_MAINTENANCE = "0";
 
 export const TEST_DB_PATH = file;

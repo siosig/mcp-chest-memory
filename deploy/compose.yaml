@@ -18,8 +18,6 @@ services:
       - "8765:8765"
     environment:
       CHEST_API_TOKEN: ${CHEST_API_TOKEN:?set CHEST_API_TOKEN (e.g. openssl rand -hex 32)}
-      CHEST_EMBEDDING_PROVIDER: ${CHEST_EMBEDDING_PROVIDER:-local}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     volumes:
       # Host-persisted database + model cache: survives container re-creation.
       - ./data:/data

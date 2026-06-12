@@ -34,8 +34,6 @@ const RESET_TABLES = [
   "events",
   "session_snapshots",
   "memories",
-  "embedding_batches",
-  "batch_cycle_runs",
   "sessions",
   "entities",
 ];

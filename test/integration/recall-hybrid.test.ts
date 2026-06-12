@@ -9,12 +9,18 @@ import assert from "node:assert/strict";
 import { handleChestRecall } from "../../src/mcp/tools/chest-recall.js";
 import { prisma, rawRun } from "../../src/lib/db/prisma-client.js";
 import { resetDb, insEntity, insMemory } from "../helpers/db.js";
-import { setActiveProviderForTest } from "../../src/lib/embedding/provider.js";
-import { geminiProvider } from "../../src/lib/embedding/gemini-provider.js";
+import { setActiveProviderForTest, type EmbeddingProvider } from "../../src/lib/embedding/provider.js";
 
-// These fixtures store 768-dim gemini vectors; pin the matching provider so
-// the (model, dim) searchable filter behaves as the assertions expect.
-setActiveProviderForTest(geminiProvider);
+// Fixtures in this file store 768-dim vectors stamped "test-model-768"; pin a
+// matching fake provider so the (model, dim) searchable filter applies.
+const fake768: EmbeddingProvider = {
+  id: "test-768",
+  model: "test-model-768",
+  dim: 768,
+  embedQuery: async () => null,
+  embedPassages: async () => null,
+};
+setActiveProviderForTest(fake768);
 
 
 const DIM = 768;
@@ -35,7 +41,7 @@ function makeVec(seed: number): number[] {
 async function markDone(memoryId: number, vec: number[]): Promise<void> {
   await rawRun(
     prisma,
-    "UPDATE memories SET embedding=?, embedding_dim=?, embedding_status='done', embedding_model='gemini-embedding-001' WHERE id=?",
+    "UPDATE memories SET embedding=?, embedding_dim=?, embedding_status='done', embedding_model='test-model-768' WHERE id=?",
     JSON.stringify(vec),
     vec.length,
     memoryId,

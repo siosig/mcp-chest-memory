@@ -5,12 +5,18 @@ import { evaluateSupersessionFor } from "../../src/lib/supersession.js";
 import { prisma, rawAll, rawRun } from "../../src/lib/db/prisma-client.js";
 import { resetDb, insEntity, insMemory } from "../helpers/db.js";
 import { realClock } from "../../src/lib/embedding/ports.js";
-import { setActiveProviderForTest } from "../../src/lib/embedding/provider.js";
-import { geminiProvider } from "../../src/lib/embedding/gemini-provider.js";
+import { setActiveProviderForTest, type EmbeddingProvider } from "../../src/lib/embedding/provider.js";
 
-// These fixtures store 768-dim gemini vectors; pin the matching provider so
-// the (model, dim) searchable filter behaves as the assertions expect.
-setActiveProviderForTest(geminiProvider);
+// Fixtures in this file store 768-dim vectors stamped "test-model-768"; pin a
+// matching fake provider so the (model, dim) searchable filter applies.
+const fake768: EmbeddingProvider = {
+  id: "test-768",
+  model: "test-model-768",
+  dim: 768,
+  embedQuery: async () => null,
+  embedPassages: async () => null,
+};
+setActiveProviderForTest(fake768);
 
 
 const silentLogger = {
@@ -49,7 +55,7 @@ describe("evaluateSupersessionFor — mixed dim safety", () => {
     // new 768-dim
     await rawRun(
       prisma,
-      "UPDATE memories SET embedding=?, embedding_dim=768, embedding_model='gemini-embedding-001', embedding_status='done' WHERE id=?",
+      "UPDATE memories SET embedding=?, embedding_dim=768, embedding_model='test-model-768', embedding_status='done' WHERE id=?",
       JSON.stringify(vec768()),
       m2,
     );

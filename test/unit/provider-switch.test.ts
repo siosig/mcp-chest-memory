@@ -1,5 +1,5 @@
-// Provider-switch semantics: vectors are searchable only under the provider
-// that produced them, and saving succeeds even when embedding fails.
+// Model-change semantics: vectors are searchable only under the model that
+// produced them, and saving succeeds even when embedding fails.
 import { describe, test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { resetDb, insEntity, insMemory } from "../helpers/db.js";
@@ -19,7 +19,7 @@ const providerA: EmbeddingProvider = {
 };
 
 const providerB: EmbeddingProvider = {
-  id: "gemini",
+  id: "other",
   model: "model-B",
   dim: 3,
   embedQuery: async () => [1, 0, 0],

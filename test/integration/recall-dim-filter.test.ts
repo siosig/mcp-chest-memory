@@ -7,12 +7,18 @@ import assert from "node:assert/strict";
 import { handleChestRecall } from "../../src/mcp/tools/chest-recall.js";
 import { prisma, rawRun } from "../../src/lib/db/prisma-client.js";
 import { resetDb, insEntity, insMemory } from "../helpers/db.js";
-import { setActiveProviderForTest } from "../../src/lib/embedding/provider.js";
-import { geminiProvider } from "../../src/lib/embedding/gemini-provider.js";
+import { setActiveProviderForTest, type EmbeddingProvider } from "../../src/lib/embedding/provider.js";
 
-// These fixtures store 768-dim gemini vectors; pin the matching provider so
-// the (model, dim) searchable filter behaves as the assertions expect.
-setActiveProviderForTest(geminiProvider);
+// Fixtures in this file store 768-dim vectors stamped "test-model-768"; pin a
+// matching fake provider so the (model, dim) searchable filter applies.
+const fake768: EmbeddingProvider = {
+  id: "test-768",
+  model: "test-model-768",
+  dim: 768,
+  embedQuery: async () => null,
+  embedPassages: async () => null,
+};
+setActiveProviderForTest(fake768);
 
 
 function makeVec(dim: number, seed: number): number[] {
@@ -32,7 +38,7 @@ async function markDone(memoryId: number, vec: number[], dim: number): Promise<v
     "UPDATE memories SET embedding=?, embedding_dim=?, embedding_status='done', embedding_model=? WHERE id=?",
     JSON.stringify(vec),
     dim,
-    dim === 768 ? "gemini-embedding-001" : "Xenova/multilingual-e5-small@q8",
+    dim === 768 ? "test-model-768" : "Xenova/multilingual-e5-small@q8",
     memoryId,
   );
 }

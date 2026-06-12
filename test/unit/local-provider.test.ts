@@ -75,16 +75,6 @@ describe("embedMemorySync", () => {
     assert.equal(ok, false);
     assert.equal((await embRow(mid)).embedding_status, "pending");
   });
-
-  test("gemini provider is untouched by the sync path (batch cycle owns it)", async () => {
-    setActiveProviderForTest({ ...fakeLocal(), id: "gemini" });
-    const eid = await insEntity("project", "p");
-    const mid = await insMemory(eid, "gemini stays async");
-
-    const ok = await embedMemorySync(mid, "gemini stays async");
-    assert.equal(ok, false);
-    assert.equal((await embRow(mid)).embedding_status, "pending");
-  });
 });
 
 describe("runLocalPendingSweep", () => {

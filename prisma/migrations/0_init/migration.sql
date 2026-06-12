@@ -31,50 +31,14 @@ CREATE TABLE "memories" (
     "embedding" TEXT,
     "embedding_model" TEXT,
     "embedding_status" TEXT NOT NULL DEFAULT 'pending',
-    "embedding_batch_id" TEXT,
     "embedding_state_changed_at" BIGINT NOT NULL DEFAULT (unixepoch()),
-    "embedding_error_kind" TEXT,
-    "embedding_error_reason" TEXT,
-    "embedding_transient_retry_count" INTEGER NOT NULL DEFAULT 0,
-    "embedding_stale_count" INTEGER NOT NULL DEFAULT 0,
     "embedding_dim" INTEGER,
     "activation_score" REAL,
     "ttl_penalty" REAL,
     "supersession_penalty" REAL,
     "activation_computed_at" BIGINT,
     CONSTRAINT "memories_entity_id_fkey" FOREIGN KEY ("entity_id") REFERENCES "entities" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "memories_superseded_by_id_fkey" FOREIGN KEY ("superseded_by_id") REFERENCES "memories" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT "memories_embedding_batch_id_fkey" FOREIGN KEY ("embedding_batch_id") REFERENCES "embedding_batches" ("id") ON DELETE SET NULL ON UPDATE CASCADE
-);
-
--- CreateTable
-CREATE TABLE "embedding_batches" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "status" TEXT NOT NULL DEFAULT 'submitting',
-    "record_count" INTEGER NOT NULL,
-    "total_input_bytes" INTEGER,
-    "external_request_id" TEXT,
-    "error_summary" TEXT,
-    "cycle_run_id" TEXT,
-    "submitted_at" BIGINT NOT NULL DEFAULT (unixepoch()),
-    "completed_at" BIGINT,
-    "created_at" BIGINT NOT NULL DEFAULT (unixepoch()),
-    "updated_at" BIGINT NOT NULL DEFAULT (unixepoch()),
-    CONSTRAINT "embedding_batches_cycle_run_id_fkey" FOREIGN KEY ("cycle_run_id") REFERENCES "batch_cycle_runs" ("id") ON DELETE SET NULL ON UPDATE CASCADE
-);
-
--- CreateTable
-CREATE TABLE "batch_cycle_runs" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "started_at" BIGINT NOT NULL DEFAULT (unixepoch()),
-    "finished_at" BIGINT,
-    "pending_count_before" INTEGER NOT NULL DEFAULT 0,
-    "in_progress_count_before" INTEGER NOT NULL DEFAULT 0,
-    "submitted_batches" INTEGER NOT NULL DEFAULT 0,
-    "fetched_batches" INTEGER NOT NULL DEFAULT 0,
-    "done_added" INTEGER NOT NULL DEFAULT 0,
-    "error_added" INTEGER NOT NULL DEFAULT 0,
-    "errors" TEXT
+    CONSTRAINT "memories_superseded_by_id_fkey" FOREIGN KEY ("superseded_by_id") REFERENCES "memories" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -234,24 +198,6 @@ CREATE INDEX "idx_memories_recall_filter" ON "memories"("entity_id", "archived_a
 
 -- CreateIndex
 CREATE INDEX "idx_memories_emb_status" ON "memories"("embedding_status");
-
--- CreateIndex
-CREATE INDEX "idx_memories_emb_batch" ON "memories"("embedding_batch_id");
-
--- CreateIndex
-CREATE INDEX "idx_memories_emb_stale" ON "memories"("embedding_status", "embedding_state_changed_at");
-
--- CreateIndex
-CREATE INDEX "idx_emb_batch_status" ON "embedding_batches"("status");
-
--- CreateIndex
-CREATE INDEX "idx_emb_batch_cycle" ON "embedding_batches"("cycle_run_id");
-
--- CreateIndex
-CREATE INDEX "idx_emb_batch_status_subm" ON "embedding_batches"("status", "submitted_at");
-
--- CreateIndex
-CREATE INDEX "idx_cycle_started" ON "batch_cycle_runs"("started_at" DESC);
 
 -- CreateIndex
 CREATE INDEX "idx_mal_memory" ON "memory_access_log"("memory_id", "accessed_at" DESC);

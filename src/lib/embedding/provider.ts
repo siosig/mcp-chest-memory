@@ -1,14 +1,12 @@
-// Embedding provider port. The active provider is selected once per process
-// from CHEST_EMBEDDING_PROVIDER; every consumer (vector search filters,
+// Embedding provider port. Every consumer (vector search filters,
 // supersession, recall query embedding, the pending sweep) goes through this
-// interface so that providers can be swapped by configuration alone.
+// interface; vectors are stamped with the producing model/dimension so a
+// future model change can be detected and re-indexed via `chest-index reembed`.
 
-import { validateEnv } from "../../utils/env.js";
 import { localProvider } from "./local-provider.js";
-import { geminiProvider } from "./gemini-provider.js";
 
 export interface EmbeddingProvider {
-  readonly id: "local" | "gemini";
+  readonly id: string;
   /** Stored into memories.embedding_model; rows from other models are not searchable. */
   readonly model: string;
   /** Stored into memories.embedding_dim; must match for a row to be searchable. */
@@ -19,16 +17,13 @@ export interface EmbeddingProvider {
   embedPassages(texts: string[]): Promise<number[][] | null>;
 }
 
-let cached: EmbeddingProvider | undefined;
+let override: EmbeddingProvider | undefined;
 
 export function activeProvider(): EmbeddingProvider {
-  if (!cached) {
-    cached = validateEnv().CHEST_EMBEDDING_PROVIDER === "gemini" ? geminiProvider : localProvider;
-  }
-  return cached;
+  return override ?? localProvider;
 }
 
 /** Test helper: override or reset the active provider. */
 export function setActiveProviderForTest(p: EmbeddingProvider | undefined): void {
-  cached = p;
+  override = p;
 }

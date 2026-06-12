@@ -5,20 +5,26 @@
 // (d) minCos filter rejects low-similarity vector hits
 // (e) empty query (entity_name only) → vector path not executed
 // (f) injected embedQuery (opts.embedQuery) takes precedence over production default
-// (g) production default without injection → graceful degrade when API key absent
+// (g) production default without injection → graceful degrade when the model is unavailable
 // (h) [US2] vector-only relevance monotonically tracks similarity; fixed floor 0.5 removed; breakdown extended
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { handleChestRecall } from "../../src/mcp/tools/chest-recall.js";
-import { embedQueryWithTimeout, embedQueryOnce } from "../../src/lib/embedding/recall-embed.js";
+import { embedQueryWithTimeout } from "../../src/lib/embedding/recall-embed.js";
 import { prisma, rawRun } from "../../src/lib/db/prisma-client.js";
 import { resetDb, insEntity, insMemory } from "../helpers/db.js";
-import { setActiveProviderForTest } from "../../src/lib/embedding/provider.js";
-import { geminiProvider } from "../../src/lib/embedding/gemini-provider.js";
+import { setActiveProviderForTest, type EmbeddingProvider } from "../../src/lib/embedding/provider.js";
 
-// These fixtures store 768-dim gemini vectors; pin the matching provider so
-// the (model, dim) searchable filter behaves as the assertions expect.
-setActiveProviderForTest(geminiProvider);
+// Fixtures in this file store 768-dim vectors stamped "test-model-768"; pin a
+// matching fake provider so the (model, dim) searchable filter applies.
+const fake768: EmbeddingProvider = {
+  id: "test-768",
+  model: "test-model-768",
+  dim: 768,
+  embedQuery: async () => null,
+  embedPassages: async () => null,
+};
+setActiveProviderForTest(fake768);
 
 
 const DIM = 768;
@@ -48,7 +54,7 @@ function makeVecWithCos(base: number[], cos: number, seed: number): number[] {
 async function markDone(memoryId: number, vec: number[]): Promise<void> {
   await rawRun(
     prisma,
-    "UPDATE memories SET embedding=?, embedding_dim=?, embedding_status='done', embedding_model='gemini-embedding-001' WHERE id=?",
+    "UPDATE memories SET embedding=?, embedding_dim=?, embedding_status='done', embedding_model='test-model-768' WHERE id=?",
     JSON.stringify(vec),
     vec.length,
     memoryId,
@@ -100,24 +106,29 @@ describe("recall vector wiring + path-normalised scoring", () => {
   });
 
   it("(b) timeout → null; recall continues with FTS only (fail-open)", async () => {
-    const never = {
-      models: { embedContent: () => new Promise<never>(() => {}) },
+    const hanging: EmbeddingProvider = {
+      ...fake768,
+      embedQuery: () => new Promise<never>(() => {}),
     };
-    const t0 = Date.now();
-    const vec = await embedQueryWithTimeout("query", 100, { client: never });
-    assert.equal(vec, null);
-    assert.ok(Date.now() - t0 < 3000, "must cut off near the timeoutMs value");
+    setActiveProviderForTest(hanging);
+    try {
+      const t0 = Date.now();
+      const vec = await embedQueryWithTimeout("query", 100);
+      assert.equal(vec, null);
+      assert.ok(Date.now() - t0 < 3000, "must cut off near the timeoutMs value");
+    } finally {
+      setActiveProviderForTest(fake768);
+    }
   });
 
-  it("(c) bad response (dimension mismatch or empty) → null; vector path skipped", async () => {
-    const short = {
-      models: { embedContent: async () => ({ embeddings: [{ values: [0.1, 0.2] }] }) },
-    };
-    assert.equal(await embedQueryOnce("q", { client: short }), null);
-    const empty = {
-      models: { embedContent: async () => ({}) },
-    };
-    assert.equal(await embedQueryOnce("q", { client: empty }), null);
+  it("(c) provider failure → null; vector path skipped", async () => {
+    const failing: EmbeddingProvider = { ...fake768, embedQuery: async () => null };
+    setActiveProviderForTest(failing);
+    try {
+      assert.equal(await embedQueryWithTimeout("q", 100), null);
+    } finally {
+      setActiveProviderForTest(fake768);
+    }
   });
 
   it("(d) vector hits below minCos threshold are excluded from candidates", async () => {
@@ -159,8 +170,8 @@ describe("recall vector wiring + path-normalised scoring", () => {
     assert.equal(called, 0, "embed must not be called when query content is absent");
   });
 
-  it("(f)+(g) injected embedQuery takes precedence; without injection, production default degrades gracefully when API key absent", async () => {
-    delete process.env.GEMINI_API_KEY; // makes production default return null immediately
+  it("(f)+(g) injected embedQuery takes precedence; without injection, the provider default degrades gracefully", async () => {
+    // fake768.embedQuery returns null → the production default path yields no vector
     const eid = await insEntity("project", "wiring");
     const m1 = await insMemory(eid, "default wiring degrade target");
     const targetVec = makeVec(5);
@@ -175,7 +186,7 @@ describe("recall vector wiring + path-normalised scoring", () => {
     const hit = injected.memories.find((m: any) => m.id === m1);
     assert.ok(hit?.match_reasons.includes("content_match_vector"), "injected fake causes vector hit");
 
-    // without injection: production default → no GEMINI_API_KEY → null → FTS-only succeeds
+    // without injection: provider returns null → FTS-only succeeds
     const bare = JSON.parse(await handleChestRecall({ query: "degrade" } as never));
     assert.equal(bare.ok, true);
     const ftsHit = bare.memories.find((m: any) => m.id === m1);

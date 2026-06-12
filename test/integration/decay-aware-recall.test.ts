@@ -5,12 +5,18 @@ import assert from "node:assert/strict";
 import { handleChestRecall } from "../../src/mcp/tools/chest-recall.js";
 import { prisma, rawGet } from "../../src/lib/db/prisma-client.js";
 import { resetDb, insEntity, insMemory, type InsMemoryCols } from "../helpers/db.js";
-import { setActiveProviderForTest } from "../../src/lib/embedding/provider.js";
-import { geminiProvider } from "../../src/lib/embedding/gemini-provider.js";
+import { setActiveProviderForTest, type EmbeddingProvider } from "../../src/lib/embedding/provider.js";
 
-// These fixtures store 768-dim gemini vectors; pin the matching provider so
-// the (model, dim) searchable filter behaves as the assertions expect.
-setActiveProviderForTest(geminiProvider);
+// Fixtures in this file store 768-dim vectors stamped "test-model-768"; pin a
+// matching fake provider so the (model, dim) searchable filter applies.
+const fake768: EmbeddingProvider = {
+  id: "test-768",
+  model: "test-model-768",
+  dim: 768,
+  embedQuery: async () => null,
+  embedPassages: async () => null,
+};
+setActiveProviderForTest(fake768);
 
 
 // Wrapper that reproduces the legacy insMemory defaults (embedding present / activation_computed_at=now).

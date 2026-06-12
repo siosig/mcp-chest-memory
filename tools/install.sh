@@ -50,6 +50,10 @@ cd "$ROOT"
 say()  { printf '\033[1m[chest]\033[0m %s\n' "$*"; }
 fail() { printf '\033[31m[chest] %s\033[0m\n' "$*" >&2; exit "${2:-1}"; }
 
+# Track every file/directory this run creates or modifies, for the summary.
+CHANGED=()
+track() { CHANGED+=("$1  $2"); }  # track <[new]|[updated]> <path — note>
+
 # --- 1. prerequisites -------------------------------------------------------
 command -v node >/dev/null 2>&1 || fail "Node.js >= 22 is required" 1
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
@@ -63,24 +67,36 @@ say "using $PKG_MGR (node $(node -v))"
 if [ ! -d node_modules ]; then
   say "installing dependencies..."
   "$PKG_MGR" install || fail "dependency installation failed" 2
+  track "[new]" "$ROOT/node_modules/ (dependencies)"
 fi
+DIST_EXISTED=0; [ -d dist ] && DIST_EXISTED=1
 say "building..."
 "$PKG_MGR" run build || fail "build failed" 2
+if [ "$DIST_EXISTED" -eq 1 ]; then track "[updated]" "$ROOT/dist/ (build output)"; else track "[new]" "$ROOT/dist/ (build output)"; fi
 
 DB_PATH="${CHEST_DB_PATH:-$DATA_DIR/chest.db}"
 
 if [ -z "$REMOTE_URL" ]; then
   # --- 3. data dir + database ------------------------------------------------
-  mkdir -p "$DATA_DIR"
+  if [ ! -d "$DATA_DIR" ]; then
+    mkdir -p "$DATA_DIR"
+    track "[new]" "$DATA_DIR/ (data directory)"
+  fi
+  DB_EXISTED=0; [ -f "$DB_PATH" ] && DB_EXISTED=1
   say "initializing database at $DB_PATH"
   DATABASE_URL="file:$DB_PATH" npx prisma migrate deploy >/dev/null || fail "database migration failed" 2
+  if [ "$DB_EXISTED" -eq 1 ]; then track "[updated]" "$DB_PATH (migrations applied)"; else track "[new]" "$DB_PATH (SQLite database)"; fi
   # --- 4. embedding model ----------------------------------------------------
   if [ "$SKIP_MODEL" -eq 1 ]; then
     say "model prefetch skipped (--skip-model); it downloads on first use"
   else
+    MODEL_EXISTED=0; [ -d "$DATA_DIR/models" ] && MODEL_EXISTED=1
     say "prefetching local embedding model (one-time download)..."
-    CHEST_DATA_DIR="$DATA_DIR" node dist/bin/fetch-model.js \
-      || say "WARNING: model prefetch failed — memories still save; embeddings backfill once the model is available"
+    if CHEST_DATA_DIR="$DATA_DIR" node dist/bin/fetch-model.js; then
+      if [ "$MODEL_EXISTED" -eq 1 ]; then track "[updated]" "$DATA_DIR/models/ (embedding model cache)"; else track "[new]" "$DATA_DIR/models/ (embedding model cache)"; fi
+    else
+      say "WARNING: model prefetch failed — memories still save; embeddings backfill once the model is available"
+    fi
   fi
 fi
 
@@ -100,6 +116,7 @@ if command -v claude >/dev/null 2>&1; then
   claude mcp add -s user chest-memory "${ENV_ARGS[@]}" -- node "$SERVER_JS" \
     && say "MCP server registered as 'chest-memory'" \
     || fail "claude mcp add failed" 2
+  track "[updated]" "$HOME/.claude.json (MCP server entry 'chest-memory', user scope)"
 else
   say "'claude' CLI not found — add this to your MCP client configuration manually:"
   if [ -n "$REMOTE_URL" ]; then
@@ -122,9 +139,22 @@ EOF
 fi
 
 # --- 6. skill ---------------------------------------------------------------
-node dist/bin/install-skill.js --force >/dev/null \
-  && say "skill installed: ~/.claude/skills/chest-memory/SKILL.md" \
-  || say "WARNING: skill installation failed (run: node dist/bin/install-skill.js --force)"
+SKILL_TARGET="$HOME/.claude/skills/chest-memory/SKILL.md"
+SKILL_EXISTED=0; [ -f "$SKILL_TARGET" ] && SKILL_EXISTED=1
+if node dist/bin/install-skill.js --force >/dev/null; then
+  say "skill installed: $SKILL_TARGET"
+  if [ "$SKILL_EXISTED" -eq 1 ]; then track "[updated]" "$SKILL_TARGET (/chest-memory skill)"; else track "[new]" "$SKILL_TARGET (/chest-memory skill)"; fi
+else
+  say "WARNING: skill installation failed (run: node dist/bin/install-skill.js --force)"
+fi
+
+# --- summary: every file/directory this run created or modified ---------------
+say "files created or modified by this run:"
+if [ ${#CHANGED[@]} -eq 0 ]; then
+  printf '  (none)\n'
+else
+  for entry in "${CHANGED[@]}"; do printf '  %s\n' "$entry"; done
+fi
 
 say "done. Restart Claude Code, then try: chest_remember / chest_recall"
 if [ -z "$REMOTE_URL" ]; then

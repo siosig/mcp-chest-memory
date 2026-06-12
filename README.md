@@ -62,6 +62,9 @@ feel the difference for yourself — getting started solo is very easy.
 - [Configuration reference](#configuration-reference)
   - [Security notes](#security-notes)
 - [Claude Code integration](#claude-code-integration)
+  - [Stop — chest-memory-sync](#stop--chest-memory-sync)
+  - [PreCompact — chest-memory-precompact](#precompact--chest-memory-precompact)
+  - [SessionStart — chest-memory-session-start](#sessionstart--chest-memory-session-start)
 - [Development](#development)
 - [Security](#security)
   - [Threat model](#threat-model)
@@ -484,16 +487,43 @@ automatic passes and drive everything via `chest-index` yourself.
   `~/.claude/settings.json`. Re-wire any time with
   `npx -y -p mcp-chest-memory chest-memory-install-hooks`; remove with `--remove`.
 
-| Hook event | Command | What it does |
-|---|---|---|
-| `Stop` | `chest-memory-sync` | Triggered after every assistant turn ends. Reads `transcript_path` from stdin and imports the session into the memory store. |
-| `PreCompact` | `chest-memory-precompact` | Triggered before Claude Code compacts the context window. Saves a work-state snapshot (≤ 2 KB) to `session_snapshots`. Never blocks compaction. |
-| `SessionStart` | `chest-memory-session-start` | Triggered at session start. Injects the saved snapshot as `<session_knowledge>` into the new context — only when `source` is `compact` or `resume`; fresh startups and clears receive nothing. |
+#### Stop — `chest-memory-sync`
 
-All three hooks exit `0` on any error (fail-silent) and log to
+Fires after every assistant turn ends. Skips when `stop_hook_active` is set to
+prevent recursive Stop chains.
+
+| | |
+|---|---|
+| **stdin** | `{ session_id, transcript_path, cwd, stop_hook_active, … }` |
+| **stdout** | silent |
+| **action** | Validates that `transcript_path` resolves (via `realpathSync`) inside `~/.claude/projects/`. In local mode the JSONL transcript is imported into the SQLite memory store. In remote mode the JSONL content is POSTed to the backend for server-side import. |
+
+#### PreCompact — `chest-memory-precompact`
+
+Fires immediately before Claude Code compacts the context window (manual or
+automatic trigger). Never blocks compaction — exits `0` on any error.
+
+| | |
+|---|---|
+| **stdin** | `{ session_id, transcript_path, trigger: "manual"\|"auto" }` |
+| **stdout** | silent |
+| **action** | Calls `saveSnapshot(session_id)` — UPSERTs a work-state summary (≤ 2 KB) into the `session_snapshots` table. In remote mode the save is delegated to the backend via the REST API. |
+
+#### SessionStart — `chest-memory-session-start`
+
+Fires at the very beginning of each session.
+
+| | |
+|---|---|
+| **stdin** | `{ session_id, source: "startup"\|"resume"\|"clear"\|"compact" }` |
+| **stdout** | `<session_knowledge>…</session_knowledge>` injected as `additionalContext`, or nothing |
+| **action** | Outputs the saved snapshot **only** when `source` is `compact` or `resume`. Fresh startups (`startup`) and conversation clears (`clear`) produce no output so they start with a clean slate. In remote mode the snapshot is fetched from the backend. |
+
+All three hooks exit `0` on any error (fail-silent) and write to
 `~/.chest-memory/hook.log` (rotated at 1 MB, owner-only `0600`). In remote mode
-the hooks embed `CHEST_MODE=remote`, `CHEST_REMOTE_URL`, and `CHEST_API_TOKEN` so
-session data is forwarded to the backend instead of a local SQLite file.
+each hook command embeds `CHEST_MODE=remote`, `CHEST_REMOTE_URL`, and
+`CHEST_API_TOKEN` so session data is forwarded to the backend instead of a local
+SQLite file.
 
 ## Development
 

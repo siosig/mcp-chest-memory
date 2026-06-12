@@ -36,6 +36,40 @@ This MCP server is built to be easy to adopt. It scales from personal use to
 multiple machines and on to a whole project team. Start with personal use and
 feel the difference for yourself — getting started solo is very easy.
 
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+  - [Single PC (local SQLite)](#single-pc-local-sqlite)
+  - [Import existing Claude Code history (optional)](#import-existing-claude-code-history-optional)
+  - [Multi-PC (LAN): Docker backend](#multi-pc-lan-docker-backend)
+  - [Multi-PC (WAN): Docker + nginx TLS](#multi-pc-wan-docker--nginx-tls)
+  - [Uninstall](#uninstall)
+- [Daily usage](#daily-usage)
+  - [What you have to do: (almost) nothing](#what-you-have-to-do-almost-nothing)
+  - [What runs automatically even if you do nothing](#what-runs-automatically-even-if-you-do-nothing)
+  - [MCP tools](#mcp-tools)
+- [How it works](#how-it-works)
+  - [Architecture](#architecture)
+  - [Memory layers](#memory-layers)
+  - [Forgetting](#forgetting)
+  - [Supersession (overwrite detection)](#supersession-overwrite-detection)
+  - [Storage](#storage)
+  - [Full-text search: FTS5 trigram](#full-text-search-fts5-trigram)
+  - [Hybrid ranking](#hybrid-ranking)
+  - [Memory lifecycle](#memory-lifecycle)
+  - [Maintenance](#maintenance)
+- [Configuration reference](#configuration-reference)
+  - [Security notes](#security-notes)
+- [Claude Code integration](#claude-code-integration)
+- [Development](#development)
+- [Security](#security)
+  - [Threat model](#threat-model)
+  - [Principles](#principles)
+  - [What the code does](#what-the-code-does)
+  - [Residual risks (by design)](#residual-risks-by-design)
+- [License](#license)
+
 ## Features
 
 - **6-layer structured memory** — `goal` / `context` / `emotion` /

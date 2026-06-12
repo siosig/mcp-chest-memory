@@ -50,6 +50,11 @@ export interface LocalSweepResult {
   embedded: number;
 }
 
+// Rows embedded and persisted per iteration. Keeps each inference call small
+// and commits progress incrementally, so an interrupted sweep (Ctrl-C, OOM,
+// shutdown) resumes from where it stopped instead of losing the whole pass.
+const SWEEP_CHUNK = 64;
+
 /**
  * Backfill pending rows in-process. Used by `chest-index up --embed-cycle`
  * and by `chest-index reembed` after a model change.
@@ -66,28 +71,33 @@ export async function runLocalPendingSweep(limit = 200): Promise<LocalSweepResul
   );
   if (rows.length === 0) return { scanned: 0, embedded: 0 };
 
-  const vectors = await provider.embedPassages(rows.map((r) => r.content));
-  if (!vectors) {
-    logger.warn({ scanned: rows.length }, "local sweep: model unavailable, rows stay pending");
-    return { scanned: rows.length, embedded: 0 };
-  }
-
   let embedded = 0;
-  for (let i = 0; i < rows.length; i++) {
-    const vec = vectors[i];
-    if (!vec) continue;
-    await rawRun(
-      prisma,
-      `UPDATE memories
-         SET embedding=?, embedding_model=?, embedding_dim=?,
-             embedding_status='done', embedding_state_changed_at=unixepoch()
-       WHERE id=? AND embedding_status='pending'`,
-      JSON.stringify(vec),
-      provider.model,
-      provider.dim,
-      rows[i].id,
-    );
-    embedded++;
+  for (let off = 0; off < rows.length; off += SWEEP_CHUNK) {
+    const chunk = rows.slice(off, off + SWEEP_CHUNK);
+    const vectors = await provider.embedPassages(chunk.map((r) => r.content));
+    if (!vectors) {
+      logger.warn(
+        { scanned: rows.length, embedded },
+        "local sweep: model unavailable, remaining rows stay pending",
+      );
+      return { scanned: rows.length, embedded };
+    }
+    for (let i = 0; i < chunk.length; i++) {
+      const vec = vectors[i];
+      if (!vec) continue;
+      await rawRun(
+        prisma,
+        `UPDATE memories
+           SET embedding=?, embedding_model=?, embedding_dim=?,
+               embedding_status='done', embedding_state_changed_at=unixepoch()
+         WHERE id=? AND embedding_status='pending'`,
+        JSON.stringify(vec),
+        provider.model,
+        provider.dim,
+        chunk[i].id,
+      );
+      embedded++;
+    }
   }
   logger.info({ scanned: rows.length, embedded }, "local pending sweep complete");
   return { scanned: rows.length, embedded };

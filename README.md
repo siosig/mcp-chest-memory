@@ -90,7 +90,8 @@ Uninstall (asks before touching your data):
 ### Importing your existing Claude Code history
 
 Seed the memory store from every past session under `~/.claude/projects/`
-(memories, per-file edit history, events), then backfill embeddings:
+(memories, per-file edit history, events) and from each project's curated
+auto-memory files (`memory/*.md`), then backfill embeddings:
 
 ```bash
 ./tools/bootstrap-import.sh             # import everything
@@ -176,11 +177,14 @@ recallable from PC-B. The backend enforces the Bearer token even on the LAN.
    same host: change the port mapping to `127.0.0.1:8765:8765`).
 2. Copy [`deploy/nginx.conf.example`](deploy/nginx.conf.example) into your
    nginx configuration, set `server_name` and certificate paths, then
-   `nginx -t && systemctl reload nginx`.
-3. Register clients against the public URL:
+   `nginx -t && systemctl reload nginx`. The example publishes the backend
+   under the `/chest-memory` path prefix (nginx strips the prefix before
+   forwarding, so the backend itself is unchanged); a health probe is
+   available at `https://chest.example.com/chest-memory/healthz`.
+3. Register clients against the public URL including the prefix:
 
 ```bash
-./tools/install.sh --remote https://chest.example.com --token <token>
+./tools/install.sh --remote https://chest.example.com/chest-memory --token <token>
 ```
 
 Defense in depth: TLS terminates at nginx, while the backend still verifies

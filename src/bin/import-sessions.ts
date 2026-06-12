@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Batch importer: scan Claude Code session JSONL files and populate chest-memory.
+// Batch importer: scan Claude Code session JSONL files and curated auto-memory
+// markdown files (memory/*.md) and populate chest-memory.
 // Usage:
 //   node dist/bin/import-sessions.js [project_dir ...]
 //   node dist/bin/import-sessions.js --dry-run [project_dir ...]
@@ -9,12 +10,13 @@
 // All inserts are IDEMPOTENT: existing data for a given session_id is wiped before re-insert.
 
 import { readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
-import { prisma, rawGet, rawRun, lastInsertId, ensurePrismaInitialized, shutdownPrisma } from '../lib/db/prisma-client.js';
+import { prisma, rawRun, lastInsertId, ensurePrismaInitialized, shutdownPrisma } from '../lib/db/prisma-client.js';
 import { parseSessionFile, detectProjectName, type ParsedSession } from '../lib/session-parser.js';
 import { extractSession, type ExtractionResult } from '../lib/session-extractor.js';
-import { normalizeEntityName } from '../lib/normalize.js';
+import { collectMemoryFiles } from '../lib/memory-md.js';
+import { importMemoryDir, resolveProjectEntity } from '../lib/memory-md-import.js';
 import { redactText } from '../lib/redact.js';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
@@ -57,22 +59,6 @@ async function wipeSession(sessionId: string): Promise<{ memories: number; edits
   const memories = await rawRun(prisma, 'DELETE FROM memories WHERE source LIKE ?', sidNeedle);
   const events = await rawRun(prisma, 'DELETE FROM events WHERE payload LIKE ?', sidNeedle);
   return { memories, edits, events };
-}
-
-async function resolveProjectEntity(projectName: string): Promise<number> {
-  const canonicalKey = `project:${projectName.toLowerCase()}`;
-  const normalized = normalizeEntityName(projectName);
-  const existing = await rawGet<{ id: number }>(
-    prisma,
-    'SELECT id FROM entities WHERE canonical_key = ? OR (kind = ? AND normalized_name = ?) OR (kind = ? AND LOWER(name) = LOWER(?))',
-    canonicalKey, 'project', normalized, 'project', projectName,
-  );
-  if (existing) {
-    await rawRun(prisma, 'UPDATE entities SET normalized_name = ? WHERE id = ? AND normalized_name IS NULL', normalized, existing.id);
-    return existing.id;
-  }
-  await rawRun(prisma, 'INSERT INTO entities (kind, name, normalized_name, canonical_key) VALUES (?, ?, ?, ?)', 'project', projectName, normalized, canonicalKey);
-  return lastInsertId(prisma);
 }
 
 async function insertSessionData(
@@ -151,6 +137,7 @@ async function main() {
 
     if (dryRun) {
       console.log(`[dry] session ${result.session_id.slice(0, 8)} (${projectName}): ${result.memories.length} memories, ${result.file_edits.length} file_edits`);
+      await importMemoryDir(dirname(sessionFile), projectName, true);
       return;
     }
 
@@ -159,6 +146,10 @@ async function main() {
     const inserted = await insertSessionData(projectEntityId, result, parsed);
 
     console.log(`[ok] ${result.session_id.slice(0, 8)} (${projectName}): wiped ${wiped.memories}m/${wiped.edits}e/${wiped.events}ev → inserted ${inserted.memories}m/${inserted.edits}e`);
+
+    // Keep the project's curated memory files in sync on every session end.
+    const mem = await importMemoryDir(dirname(sessionFile), projectName, false);
+    if (mem.files > 0) console.log(`[ok] memory files (${projectName}): ${mem.memories} imported`);
     await shutdownPrisma();
     return;
   }
@@ -193,12 +184,14 @@ async function main() {
     memories_planned: 0,
     memories_inserted: 0,
     file_edits_inserted: 0,
+    memory_files_imported: 0,
     errors: 0,
   };
 
   for (const projectDir of projectDirs) {
     const files = collectJsonlFiles(projectDir);
-    if (files.length === 0) { console.log(`[skip] no .jsonl in ${projectDir}`); continue; }
+    const hasMemoryFiles = collectMemoryFiles(projectDir).length > 0;
+    if (files.length === 0 && !hasMemoryFiles) { console.log(`[skip] no .jsonl or memory/*.md in ${projectDir}`); continue; }
     agg.projects++;
 
     const rawDirName = projectDir.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? 'unknown';
@@ -236,6 +229,15 @@ async function main() {
         console.warn(`  [tx error] ${f}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+
+    try {
+      const mem = await importMemoryDir(projectDir, dirName, dryRun);
+      agg.memory_files_imported += mem.memories;
+      if (!dryRun && mem.files > 0) console.log(`  [ok] memory files: ${mem.memories} imported`);
+    } catch (e: unknown) {
+      agg.errors++;
+      console.warn(`  [tx error] memory files in ${projectDir}: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   console.log(`\n=== Summary ===`);
@@ -245,6 +247,7 @@ async function main() {
   console.log(`  memories planned:   ${agg.memories_planned}`);
   console.log(`  memories inserted:  ${agg.memories_inserted}${dryRun ? ' (DRY RUN — nothing written)' : ''}`);
   console.log(`  file_edits inserted:${agg.file_edits_inserted}${dryRun ? ' (DRY RUN)' : ''}`);
+  console.log(`  memory files:       ${agg.memory_files_imported}${dryRun ? ' (DRY RUN)' : ''}`);
   console.log(`  errors:             ${agg.errors}`);
 
   if (!dryRun) await shutdownPrisma();

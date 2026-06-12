@@ -9,13 +9,13 @@
 //   install-hooks.js --remove [--settings PATH]
 //   install-hooks.js --dry-run ...
 //
-// Commands point at this build's dist/bin scripts via absolute paths, so the
-// hooks work regardless of where Claude Code is started from. Idempotent:
-// re-running updates entries in place and never duplicates them.
+// Commands run `npx -y -p mcp-chest-memory@latest <bin>`, so the hooks always
+// run the published package regardless of where Claude Code is started from
+// and follow npm releases without a reinstall. Idempotent: re-running updates
+// entries in place and never duplicates them.
 
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { fileURLToPath } from 'node:url';
 import {
   buildNodeHookSpecs,
   wireHooks,
@@ -68,9 +68,7 @@ try {
       report(removeHooks(settingsPath), 'remove');
     }
   } else {
-    const distBinDir = dirname(fileURLToPath(import.meta.url));
     const specs = buildNodeHookSpecs({
-      distBinDir,
       dataDir: optValue('--data-dir'),
       dbPath: optValue('--db-path'),
     });

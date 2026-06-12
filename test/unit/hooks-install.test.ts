@@ -20,11 +20,10 @@ function readJson(path: string): any {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-const SPECS = buildNodeHookSpecs({ distBinDir: "/opt/chest/dist/bin" });
+const SPECS = buildNodeHookSpecs();
 
-test("buildNodeHookSpecs embeds env vars and absolute script paths", () => {
+test("buildNodeHookSpecs embeds env vars and npx package commands", () => {
   const specs = buildNodeHookSpecs({
-    distBinDir: "/opt/chest/dist/bin",
     dataDir: "/data/chest",
     dbPath: "/data/chest/chest.db",
   });
@@ -33,30 +32,38 @@ test("buildNodeHookSpecs embeds env vars and absolute script paths", () => {
   assert.ok(stop);
   assert.equal(
     stop.command,
-    "CHEST_DATA_DIR=/data/chest CHEST_DB_PATH=/data/chest/chest.db node /opt/chest/dist/bin/sync-session.js",
+    "CHEST_DATA_DIR=/data/chest CHEST_DB_PATH=/data/chest/chest.db npx -y -p mcp-chest-memory@latest chest-memory-sync",
   );
   const events = specs.map((s) => s.event).sort();
   assert.deepEqual(events, ["PreCompact", "SessionStart", "Stop"]);
 });
 
-test("buildNodeHookSpecs quotes paths with spaces", () => {
-  const specs = buildNodeHookSpecs({ distBinDir: "/opt/my chest/dist/bin" });
-  assert.ok(specs[0].command.includes("'/opt/my chest/dist/bin/"));
+test("buildNodeHookSpecs emits a bare npx command without env vars", () => {
+  const specs = buildNodeHookSpecs();
+  assert.equal(
+    specs.find((s) => s.event === "Stop")?.command,
+    "npx -y -p mcp-chest-memory@latest chest-memory-sync",
+  );
 });
 
-test("wireHooks migrates a legacy npx-form entry to the absolute command", () => {
+test("buildNodeHookSpecs quotes env values with spaces", () => {
+  const specs = buildNodeHookSpecs({ dataDir: "/data/my chest" });
+  assert.ok(specs[0].command.startsWith("CHEST_DATA_DIR='/data/my chest' npx -y -p "));
+});
+
+test("wireHooks migrates a legacy absolute-node entry to the npx command", () => {
   const path = settingsIn(mkdtempSync(join(tmpdir(), "chest-hooks-")));
   writeFileSync(
     path,
     JSON.stringify({
-      hooks: { Stop: [{ matcher: "", hooks: [{ type: "command", command: "npx -y chest-memory-sync" }] }] },
+      hooks: { Stop: [{ matcher: "", hooks: [{ type: "command", command: "node /opt/chest/dist/bin/sync-session.js" }] }] },
     }),
   );
   const results = wireHooks(path, SPECS);
   assert.equal(results.find((r) => r.event === "Stop")?.action, "updated");
   const settings = readJson(path);
   assert.equal(settings.hooks.Stop.length, 1);
-  assert.equal(settings.hooks.Stop[0].hooks[0].command, "node /opt/chest/dist/bin/sync-session.js");
+  assert.equal(settings.hooks.Stop[0].hooks[0].command, "npx -y -p mcp-chest-memory@latest chest-memory-sync");
 });
 
 test("wireHooks creates settings.json with all three hooks", () => {
@@ -77,7 +84,7 @@ test("wireHooks is idempotent and updates a changed command in place", () => {
   const again = wireHooks(path, SPECS);
   assert.deepEqual(again.map((r) => r.action), ["unchanged", "unchanged", "unchanged"]);
 
-  const moved = buildNodeHookSpecs({ distBinDir: "/elsewhere/dist/bin", dataDir: "/d2" });
+  const moved = buildNodeHookSpecs({ dataDir: "/d2" });
   const updated = wireHooks(path, moved);
   assert.deepEqual(updated.map((r) => r.action), ["updated", "updated", "updated"]);
 

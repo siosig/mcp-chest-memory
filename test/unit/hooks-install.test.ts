@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildNodeHookSpecs,
-  buildNpxHookSpecs,
   wireHooks,
   removeHooks,
   HOOK_EVENTS,
@@ -45,13 +44,19 @@ test("buildNodeHookSpecs quotes paths with spaces", () => {
   assert.ok(specs[0].command.includes("'/opt/my chest/dist/bin/"));
 });
 
-test("buildNpxHookSpecs uses registry bin names", () => {
-  const cmds = buildNpxHookSpecs().map((s) => s.command);
-  assert.deepEqual(cmds, [
-    "npx -y chest-memory-sync",
-    "npx -y chest-memory-precompact",
-    "npx -y chest-memory-session-start",
-  ]);
+test("wireHooks migrates a legacy npx-form entry to the absolute command", () => {
+  const path = settingsIn(mkdtempSync(join(tmpdir(), "chest-hooks-")));
+  writeFileSync(
+    path,
+    JSON.stringify({
+      hooks: { Stop: [{ matcher: "", hooks: [{ type: "command", command: "npx -y chest-memory-sync" }] }] },
+    }),
+  );
+  const results = wireHooks(path, SPECS);
+  assert.equal(results.find((r) => r.event === "Stop")?.action, "updated");
+  const settings = readJson(path);
+  assert.equal(settings.hooks.Stop.length, 1);
+  assert.equal(settings.hooks.Stop[0].hooks[0].command, "node /opt/chest/dist/bin/sync-session.js");
 });
 
 test("wireHooks creates settings.json with all three hooks", () => {

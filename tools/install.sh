@@ -21,7 +21,7 @@
 #   --remote URL    register in remote mode against this backend URL
 #   --token TOKEN   bearer token for --remote (required with --remote)
 #   --skip-model    do not prefetch the embedding model now
-#   --skip-hooks    do not wire the Claude Code hooks
+#   --skip-hooks    do not wire the Claude Code hooks (alias: --no-hooks)
 #   --data-dir DIR  override the data directory (default: ~/.chest-memory)
 
 set -euo pipefail
@@ -37,7 +37,7 @@ while [ $# -gt 0 ]; do
     --remote)    REMOTE_URL="${2:?--remote requires a URL}"; shift 2 ;;
     --token)     API_TOKEN="${2:?--token requires a value}"; shift 2 ;;
     --skip-model) SKIP_MODEL=1; shift ;;
-    --skip-hooks) SKIP_HOOKS=1; shift ;;
+    --skip-hooks|--no-hooks) SKIP_HOOKS=1; shift ;;
     --data-dir)  DATA_DIR="${2:?--data-dir requires a path}"; shift 2 ;;
     -h|--help)   grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;

@@ -8,7 +8,7 @@
 
 **With this MCP installed, your LLM grows together with you: mistakes and
 repeated questions keep decreasing, and it gets ever closer to an LLM that
-is truly yours.**
+works just the way you like.**
 
 **Local-first persistent memory for coding agents, served over MCP.**
 Your agent forgets everything when a session ends; chest gives it a durable,

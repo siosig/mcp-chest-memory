@@ -1,8 +1,9 @@
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { prisma, rawAll, rawGet } from "../../lib/db/prisma-client.js";
+import { prisma, rawAll } from "../../lib/db/prisma-client.js";
 import { computeHeat } from "../../lib/heat-index.js";
 import { decideForgetting } from "../../lib/forgetting.js";
 import { archiveMemory, archiveMemories } from "../../lib/archive.js";
+import { FORGET_SWEEP_CAP } from "../../lib/embedding/config.js";
 import type { ChestForgetInput } from "../../schemas/chest-forget.js";
 import { confirmForget } from "../elicitation.js";
 
@@ -15,31 +16,15 @@ interface ForgetCandidateRow {
   protected: number;
 }
 
-interface ForgetTargetRow {
-  id: number;
-  layer: string;
-  importance: number;
-  protected: number;
-}
-
-interface ForgetInteractivePreviewRow {
-  id: number;
-  layer: string;
-  content: string;
-  importance: number;
-  entity: string;
-}
-
 export async function handleChestForget(
   args: ChestForgetInput,
   lowLevelServer: Server,
 ): Promise<string> {
   if (args.memory_id !== undefined) {
-    const target = await rawGet<ForgetTargetRow>(
-      prisma,
-      "SELECT id, layer, importance, protected FROM memories WHERE id = ?",
-      args.memory_id,
-    );
+    const target = await prisma.memory.findUnique({
+      where: { id: BigInt(args.memory_id) },
+      select: { id: true, layer: true, importance: true, protected: true },
+    });
     if (!target) {
       return JSON.stringify({ ok: false, error: `memory_id ${args.memory_id} not found` });
     }
@@ -66,15 +51,14 @@ export async function handleChestForget(
     }
 
     if (args.interactive) {
-      const row = await rawGet<ForgetInteractivePreviewRow>(
-        prisma,
-        `SELECT m.id, m.layer, m.content, m.importance, e.name as entity FROM memories m JOIN entities e ON e.id = m.entity_id WHERE m.id = ?`,
-        args.memory_id,
-      );
+      const row = await prisma.memory.findUnique({
+        where: { id: BigInt(args.memory_id) },
+        select: { id: true, layer: true, content: true, importance: true, entity: { select: { name: true } } },
+      });
       if (!row) return JSON.stringify({ ok: false, error: `memory ${args.memory_id} not found` });
       const ok = await confirmForget(lowLevelServer, {
-        id: row.id,
-        entity: row.entity,
+        id: Number(row.id),
+        entity: row.entity.name,
         layer: row.layer,
         importance: row.importance,
         preview: row.content,
@@ -98,7 +82,7 @@ export async function handleChestForget(
     prisma,
     `SELECT id, layer, importance, access_count, last_accessed_at, protected
        FROM memories
-       WHERE protected = 0 AND importance < 0.9`,
+       WHERE protected = 0 AND importance < 0.9 AND archived_at IS NULL`,
   );
 
   const now = Math.floor(Date.now() / 1000);
@@ -123,7 +107,11 @@ export async function handleChestForget(
     if (action !== "keep") actions.push({ id: r.id, action });
   }
 
-  const toDropIds = actions.filter((a) => a.action === "drop").map((a) => a.id);
+  const allDropIds = actions.filter((a) => a.action === "drop").map((a) => a.id);
+  // Bound a single argument-less sweep so a prompt-injected/automated call cannot
+  // archive the whole store at once. Overflow is left for a subsequent call.
+  const toDropIds = allDropIds.slice(0, FORGET_SWEEP_CAP);
+  const remaining = allDropIds.length - toDropIds.length;
 
   // Sweep drops become archive transitions (no physical DELETE).
   if (!args.dry_run) {
@@ -134,7 +122,10 @@ export async function handleChestForget(
     ok: true,
     dry_run: !!args.dry_run,
     scanned: rows.length,
-    to_drop: toDropIds.length,
+    to_drop: allDropIds.length,
+    cap: FORGET_SWEEP_CAP,
+    affected: args.dry_run ? 0 : toDropIds.length,
+    remaining,
     to_compress: actions.filter((a) => a.action === "compress").length,
     sample_ids_to_drop: toDropIds.slice(0, 10),
   });

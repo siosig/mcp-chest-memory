@@ -1,5 +1,6 @@
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { prisma, rawAll, rawGet } from "../../lib/db/prisma-client.js";
+import { escapeLike, LIKE_ESCAPE } from "../../lib/db/sql-escape.js";
 import type { ChestRecallFileInput } from "../../schemas/chest-recall-file.js";
 import { fetchRoots, isInsideRoots } from "../roots.js";
 import { instantFromUnixSeconds } from "../../utils/temporal.js";
@@ -70,11 +71,14 @@ async function baseRecallFile(args: ChestRecallFileInput): Promise<string> {
   const sub = args.path_substring.trim();
   if (!sub) return JSON.stringify({ ok: false, error: "path_substring required" });
   const maxIntents = Math.max(1, Math.min(50, args.max_intents ?? 10));
+  // Escape LIKE wildcards so a path_substring of "%" matches literally instead
+  // of every file. Bound as `?`; the ESCAPE clause declares the backslash.
+  const likePat = `%${escapeLike(sub)}%`;
 
   const totalRow = await rawGet<RecallFileSummaryRow>(
     prisma,
-    `SELECT COUNT(*) as c, MIN(occurred_at) as first_at, MAX(occurred_at) as last_at, COUNT(DISTINCT session_id) as sessions FROM session_file_edits WHERE file_path LIKE ?`,
-    `%${sub}%`,
+    `SELECT COUNT(*) as c, MIN(occurred_at) as first_at, MAX(occurred_at) as last_at, COUNT(DISTINCT session_id) as sessions FROM session_file_edits WHERE file_path LIKE ? ${LIKE_ESCAPE}`,
+    likePat,
   );
   if (!totalRow || totalRow.c === 0) {
     return JSON.stringify({
@@ -87,20 +91,20 @@ async function baseRecallFile(args: ChestRecallFileInput): Promise<string> {
   const daily = await rawAll<RecallFileDailyRow>(
     prisma,
     `SELECT DATE_FORMAT(FROM_UNIXTIME(occurred_at), '%Y-%m-%d') as day, operation, COUNT(*) as edits
-       FROM session_file_edits WHERE file_path LIKE ?
+       FROM session_file_edits WHERE file_path LIKE ? ${LIKE_ESCAPE}
        GROUP BY day, operation ORDER BY day`,
-    `%${sub}%`,
+    likePat,
   );
 
   const intents = await rawAll<RecallFileIntentRow>(
     prisma,
     `SELECT context_snippet, MAX(occurred_at) as last_at, COUNT(*) as freq
        FROM session_file_edits
-       WHERE file_path LIKE ? AND context_snippet IS NOT NULL AND CHAR_LENGTH(context_snippet) > 20
+       WHERE file_path LIKE ? ${LIKE_ESCAPE} AND context_snippet IS NOT NULL AND CHAR_LENGTH(context_snippet) > 20
        GROUP BY context_snippet
        ORDER BY last_at DESC
        LIMIT ?`,
-    `%${sub}%`,
+    likePat,
     maxIntents,
   );
 
@@ -110,16 +114,16 @@ async function baseRecallFile(args: ChestRecallFileInput): Promise<string> {
        FROM session_file_edits sfe
        JOIN memories m ON m.id = sfe.memory_id
        JOIN entities e ON e.id = m.entity_id
-       WHERE sfe.file_path LIKE ?
+       WHERE sfe.file_path LIKE ? ${LIKE_ESCAPE}
        ORDER BY m.importance DESC
        LIMIT 20`,
-    `%${sub}%`,
+    likePat,
   );
 
   const paths = await rawAll<RecallFilePathRow>(
     prisma,
-    `SELECT file_path, COUNT(*) as edits FROM session_file_edits WHERE file_path LIKE ? GROUP BY file_path ORDER BY edits DESC`,
-    `%${sub}%`,
+    `SELECT file_path, COUNT(*) as edits FROM session_file_edits WHERE file_path LIKE ? ${LIKE_ESCAPE} GROUP BY file_path ORDER BY edits DESC`,
+    likePat,
   );
 
   const response: RecallFileBaseResponse = {

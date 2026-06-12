@@ -14,7 +14,13 @@ services:
     image: chest-memory:latest
     container_name: chest-memory
     restart: unless-stopped
+    # Run as the unprivileged node user (uid 1000); ensure ./data is owned by
+    # uid 1000 on the host (e.g. `mkdir -p data && sudo chown 1000:1000 data`).
+    user: "node"
     ports:
+      # Published on all interfaces by default. To restrict to this host, change
+      # to "127.0.0.1:8765:8765" and front the backend with a reverse proxy. The
+      # backend also honors CHEST_BIND_HOST for the in-container listen address.
       - "8765:8765"
     environment:
       CHEST_API_TOKEN: ${CHEST_API_TOKEN:?set CHEST_API_TOKEN (e.g. openssl rand -hex 32)}

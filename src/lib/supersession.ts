@@ -85,9 +85,15 @@ export async function supersede(
   client: RawClient = prisma,
 ): Promise<boolean> {
   const now = nowSec ?? Math.floor(Date.now() / 1000);
+  // Defense-in-depth for the caller-driven (manual) path: never archive a
+  // protected/pinned/goal memory via supersedes, even if a caller passes its id
+  // directly. The auto batch is intentionally unguarded here so its same-layer
+  // near-duplicate collapse (incl. realize) is unchanged (Principle I).
+  const protectionGuard =
+    method === "manual" ? " AND protected = 0 AND importance < 0.9 AND layer != 'goal'" : "";
   const changes = await rawRun(
     client,
-    "UPDATE memories SET archived_at = ?, superseded_by_id = ?, supersession_confidence = ? WHERE id = ? AND archived_at IS NULL",
+    `UPDATE memories SET archived_at = ?, superseded_by_id = ?, supersession_confidence = ? WHERE id = ? AND archived_at IS NULL${protectionGuard}`,
     now,
     newId,
     confidence,

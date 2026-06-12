@@ -6,11 +6,21 @@
 // (`process.kill(pid, 0)`). This approximates flock(2)'s crash-safety: a lock left
 // behind by a dead process is reclaimed on the next run.
 
-import { openSync, closeSync, writeSync, readFileSync, unlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { openSync, closeSync, writeSync, readFileSync, unlinkSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
-export const LOCK_PATH = join(tmpdir(), "chest-index.lock");
+// The lock lives in the user-owned data directory, not a world-writable temp
+// dir. A shared /tmp path let any local user pre-create the lock (e.g. with PID
+// 1) and permanently deny maintenance. Mirrors the data-dir resolution used by
+// the hooks so the lock sits next to the database it guards.
+const DATA_DIR = process.env["CHEST_DATA_DIR"] ?? join(homedir(), ".chest-memory");
+try {
+  mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+} catch {
+  /* best-effort: acquireLock surfaces real errors */
+}
+export const LOCK_PATH = join(DATA_DIR, "chest-index.lock");
 
 export interface LockHandle {
   release(): void;

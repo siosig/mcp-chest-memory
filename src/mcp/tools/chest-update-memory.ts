@@ -1,5 +1,7 @@
-import { prisma, rawGet, rawRun } from "../../lib/db/prisma-client.js";
+import { Prisma } from "@prisma/client";
+import { prisma, rawGet } from "../../lib/db/prisma-client.js";
 import { redactText } from "../../lib/redact.js";
+import { MAX_CONTENT_CHARS } from "../../lib/embedding/config.js";
 import { CANONICAL_LAYERS, resolveLayer } from "../../schemas/common.js";
 import type { ChestUpdateMemoryInput } from "../../schemas/chest-update-memory.js";
 
@@ -25,12 +27,33 @@ export async function handleChestUpdateMemory(
     return JSON.stringify({ ok: false, error: `memory_id ${memoryId} not found` });
   }
 
-  const patch: Record<string, string | number> = {};
-  // Credentials are redacted before persistence.
-  // The change-detection check for resetting the embedding also uses the redacted value,
-  // because the stored content is already redacted — identical redacted values mean no real change.
+  // Enforce the content cap here as well as in the Zod schema, so direct handler
+  // calls (e.g. tests) get the same validation as chest_remember.
+  if (typeof args.content === "string" && args.content.length > MAX_CONTENT_CHARS) {
+    return JSON.stringify({
+      ok: false,
+      error:
+        `Content too long: ${args.content.length} chars exceeds limit ${MAX_CONTENT_CHARS}. ` +
+        `Please split into smaller memories and re-submit.`,
+      limit: MAX_CONTENT_CHARS,
+      actual: args.content.length,
+    });
+  }
+
+  // Build the update via the Prisma ORM rather than a string-concatenated SET
+  // clause: column names come from the typed model, never from runtime keys, so
+  // the previous dynamic-SQL pattern (and any future injection risk) is removed,
+  // and a schema rename is a one-line type change instead of editing SQL.
+  const data: Prisma.MemoryUpdateInput = {};
+  const changed: string[] = [];
+  // Credentials are redacted before persistence. The change-detection check for
+  // resetting the embedding also uses the redacted value, because the stored
+  // content is already redacted — identical redacted values mean no real change.
   const newContent = typeof args.content === "string" ? redactText(args.content) : undefined;
-  if (newContent !== undefined) patch["content"] = newContent;
+  if (newContent !== undefined) {
+    data.content = newContent;
+    changed.push("content");
+  }
   if (typeof args.layer === "string") {
     const resolved = resolveLayer(args.layer);
     if (!resolved || !(CANONICAL_LAYERS as readonly string[]).includes(resolved)) {
@@ -43,59 +66,52 @@ export async function handleChestUpdateMemory(
           "Cannot move a protected realize memory to another layer. Create a new memory in the target layer instead.",
       });
     }
-    patch["layer"] = resolved;
+    data.layer = resolved;
+    changed.push("layer");
   }
+  let newImportance: number | undefined;
   if (args.importance !== undefined) {
-    const imp = Math.min(1, Math.max(0, args.importance));
-    patch["importance"] = imp;
-    patch["protected"] = imp >= 0.9 || existing.protected === 1 ? 1 : 0;
+    newImportance = Math.min(1, Math.max(0, args.importance));
+    data.importance = newImportance;
+    data.protected = newImportance >= 0.9 || existing.protected === 1 ? 1 : 0;
+    changed.push("importance", "protected");
   }
 
-  const keys = Object.keys(patch);
-  if (keys.length === 0) {
+  if (changed.length === 0) {
     return JSON.stringify({
       ok: false,
       error: "no fields to update (provide content, layer, or importance)",
     });
   }
-  const setClause = keys.map((k) => `${k} = ?`).join(", ");
-  const values = keys.map((k) => patch[k]);
-  await rawRun(prisma, `UPDATE memories SET ${setClause} WHERE id = ?`, ...values, memoryId);
 
-  // When content changes, fully reset the embedding pipeline:
+  // When content changes, fully reset the embedding pipeline in the same update:
   //   - clear embedding columns (vector, model, dim) to NULL
   //   - reset status to 'pending' so the next indexing cycle re-embeds
-  //   - reset error info and transient retry counter (new content = fresh attempt)
-  //   - update state_changed_at for audit purposes
-  // If content is not provided or is identical to the stored value, the embedding columns are left untouched.
-  if (newContent !== undefined && newContent !== existing.content) {
-    const nowSec = Math.floor(Date.now() / 1000);
-    await rawRun(
-      prisma,
-      `UPDATE memories SET
-         embedding = NULL,
-         embedding_model = NULL,
-         embedding_status = 'pending',
-         embedding_dim = NULL,
-         embedding_state_changed_at = ?
-       WHERE id = ?`,
-      nowSec,
-      memoryId,
-    );
+  //   - bump state_changed_at for audit purposes
+  // If content is unchanged, the embedding columns are left untouched.
+  const contentChanged = newContent !== undefined && newContent !== existing.content;
+  if (contentChanged) {
+    data.embedding = null;
+    data.embeddingModel = null;
+    data.embeddingStatus = "pending";
+    data.embeddingDim = null;
+    data.embeddingStateChangedAt = BigInt(Math.floor(Date.now() / 1000));
   }
 
-  await rawRun(
-    prisma,
-    "INSERT INTO events (entity_id, kind, payload) VALUES (?, ?, ?)",
-    existing.entity_id,
-    "memory_updated",
-    JSON.stringify({ memory_id: memoryId, changed: keys }),
-  );
+  await prisma.memory.update({ where: { id: BigInt(memoryId) }, data });
+
+  await prisma.event.create({
+    data: {
+      entityId: BigInt(existing.entity_id),
+      kind: "memory_updated",
+      payload: JSON.stringify({ memory_id: memoryId, changed }),
+    },
+  });
 
   return JSON.stringify({
     ok: true,
     memory_id: memoryId,
-    updated_fields: keys,
-    pinned: (typeof patch["importance"] === "number" ? patch["importance"] : existing.importance) >= 0.9,
+    updated_fields: changed,
+    pinned: (newImportance !== undefined ? newImportance : existing.importance) >= 0.9,
   });
 }

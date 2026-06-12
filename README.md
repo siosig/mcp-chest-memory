@@ -403,12 +403,31 @@ automatic passes and drive everything via `chest-index` yourself.
 | `CHEST_DATA_DIR` | `~/.chest-memory` | Data root (database, model cache) |
 | `CHEST_DB_PATH` | `<data dir>/chest.db` | SQLite file |
 | `CHEST_REMOTE_URL` | — | Backend base URL (remote mode) |
-| `CHEST_API_TOKEN` | — | Shared Bearer token (backend refuses to start without it) |
+| `CHEST_API_TOKEN` | — | Shared Bearer token (backend refuses to start without it; **minimum 32 characters**) |
 | `CHEST_PORT` | `8765` | REST backend listen port |
-| `CHEST_MAX_CONTENT_CHARS` | `8000` | Max memory content length |
+| `CHEST_BIND_HOST` | `0.0.0.0` | REST backend listen host. Set to `127.0.0.1` to bind loopback only when a reverse proxy fronts the backend |
+| `CHEST_MAX_CONTENT_CHARS` | `8000` | Max memory content length (clamped to ≥ 1; 0/negative are ignored) |
+| `CHEST_FORGET_SWEEP_CAP` | `200` | Max memories archived per argument-less `chest_forget` sweep |
 | `CHEST_SWEEP_LIMIT` | `500` | Max rows backfilled per embedding sweep |
 | `CHEST_MAINTENANCE_INTERVAL_SEC` | `600` | Min seconds between background maintenance passes |
 | `CHEST_AUTO_MAINTENANCE` | `1` | Set `0` to disable write-triggered maintenance |
+
+### Security notes
+
+- **Token length**: the REST backend requires `CHEST_API_TOKEN` to be at least 32
+  characters and refuses to start otherwise. `openssl rand -hex 32` (64 chars) satisfies
+  this.
+- **Token on the command line**: passing the token inline to `claude mcp add` (or any
+  shell command) leaves it visible in `/proc/<pid>/cmdline` and your shell history on a
+  shared machine. Prefer setting it via your shell's secret manager or an env file, and
+  clear the relevant history entry afterward.
+- **Network exposure**: the LAN profile publishes the backend on all interfaces by
+  default and protects it with the Bearer token only, in cleartext HTTP. Run it only on a
+  trusted network, or restrict it with `CHEST_BIND_HOST=127.0.0.1` plus the nginx + TLS
+  (WAN) profile. The bundled nginx example sends HSTS and a restrictive CSP.
+- **File reads**: `chest_read_smart` only reads files inside the MCP client's declared
+  roots and is unavailable on the REST backend (which has no client roots), so a token
+  holder cannot read arbitrary files on the backend host.
 
 ## Claude Code integration
 
@@ -441,6 +460,73 @@ npx -y -p mcp-chest-memory chest-memory-setup --yes   # local mode
 # or for remote:
 npx -y -p mcp-chest-memory chest-memory-setup --docker <url> <token> --yes
 ```
+
+## Security
+
+chest-memory stores a durable, cross-project record of how you and your agents
+work. That store is valuable, so it is also worth protecting. This section
+describes the threat model the project designs against and the concrete measures
+in the code.
+
+### Threat model
+
+Two principals can reach the tools, and neither is fully trusted:
+
+1. **The LLM agent itself.** An agent reads third-party content (repositories,
+   web pages, issues) and can be steered by **prompt injection** hidden in that
+   content. So a tool call is not automatically a trustworthy request — it may be
+   an attacker's request laundered through the model.
+2. **Any holder of the shared Bearer token** (LAN/WAN profiles). The REST backend
+   authenticates with one shared token; anyone who has it can POST arbitrary tool
+   payloads to the backend host.
+
+The design goal is that neither a prompt-injected agent nor a token holder can
+read arbitrary host files, dump the whole memory store, or silently destroy or
+rewrite memories.
+
+### Principles
+
+- **Fail closed.** When the safe scope is unknown, deny. File reads with no
+  declared roots return nothing rather than falling back to "read anything".
+- **No deployment branches in tool logic.** Profile differences flow only through
+  the executor port (`src/core/executor.ts`); a tool behaves identically in every
+  profile. Where a tool must refuse on the backend, that falls out of the *input*
+  (no client roots) rather than an `if (remote)` branch.
+- **Protect the irreplaceable.** `realize` (pain lessons), pinned
+  (`importance >= 0.9`), and `goal` memories are exempt from every automated and
+  caller-driven removal path.
+- **Root-cause over symptomatic fixes.** Cross-cutting concerns live in one
+  audited helper (LIKE-escaping, path confinement, atomic writes) instead of being
+  re-implemented per call site.
+- **Defense in depth.** TLS terminates at nginx *and* the backend still verifies
+  the token; content caps are enforced in both the schema and the handler.
+
+### What the code does
+
+| Risk | Measure | Where |
+|---|---|---|
+| Arbitrary host file read via `chest_read_smart` | Reads are confined to the MCP client's declared roots, symlinks are resolved (`realpath`) before the check, and the same canonical path is used for `stat` and `read` (no check/use gap). Empty roots deny everything, so the REST backend (no client roots) refuses the tool. | `src/mcp/roots.ts` (`confinePath`), `src/mcp/read-smart.ts` |
+| Full-store disclosure via wildcard input | All user values interpolated into SQL `LIKE` are escaped (`%`, `_`, `\`) with an explicit `ESCAPE` clause, so `query: "%"` matches literally instead of every row. | `src/lib/db/sql-escape.ts`, `chest_recall`, `chest_recall_file` |
+| Silent destruction of protected memory via `supersedes` | `supersedes` skips protected/pinned/goal targets and reports them; the low-level supersede guards the manual path too. | `chest_remember`, `src/lib/supersession.ts` |
+| Mass-archival via an argument-less `chest_forget` | The sweep archives at most `CHEST_FORGET_SWEEP_CAP` (default 200) per call and reports `affected`/`remaining`; protected layers stay exempt. | `chest_forget` |
+| Content-cap bypass via `chest_update_memory` | The same `MAX_CONTENT_CHARS` limit is enforced in the schema and the handler. | `chest_update_memory` |
+| SQL injection | Every query binds values as parameters — no user string is concatenated into SQL. Simple CRUD uses the Prisma ORM (typed columns, no string-built clauses); the remaining raw SQL is reserved for SQLite-specific features (FTS5/`bm25`, vector ranking, claim-style updates) and still parameter-bound. The previous dynamic `SET`-clause builder was replaced by a typed ORM update. | repo-wide |
+| Stored-memory prompt injection | Recall responses carry a notice that memory `content` is untrusted **data, not instructions**; the consolidation prompt wraps each memory in `<memory_data>` tags with a treat-as-data preamble. | `chest_recall`, `src/mcp/sampling.ts` |
+| Settings corruption / secret leakage | `~/.claude/settings.json` is written atomically (temp file + rename) and owner-only (`0600`); hook logs are `0600`; the Stop-hook importer only accepts transcripts under `~/.claude/projects`. | `src/lib/fs-atomic.ts`, `src/lib/hooks-install.ts`, `src/bin/sync-session.ts` |
+| Container/host compromise | The Docker image runs as the non-root `node` user over the bind mount; the maintenance lock lives in the user-owned data dir (not world-writable `/tmp`). | `deploy/Dockerfile`, `src/cli/chest-index-flock.ts` |
+| Weak auth / network exposure | The backend requires a Bearer token of at least 32 characters, compares it in constant time, binds the host configured by `CHEST_BIND_HOST`, and limits request bodies to 1 MB. The nginx example sends HSTS and a restrictive CSP. | `src/http/`, `deploy/nginx.conf.example` |
+
+### Residual risks (by design)
+
+- The **LAN profile uses cleartext HTTP**: the token and memory content cross the
+  network in the clear. Run it only on a trusted network, or use the WAN profile
+  (nginx + TLS). See [Security notes](#security-notes).
+- The shared token grants **full access**: there is no per-client scoping. Treat it
+  as a high-value secret.
+- Data markers **reduce but do not eliminate** stored prompt-injection risk; they
+  are one layer, not a guarantee.
+
+Found a vulnerability? Please open a private report rather than a public issue.
 
 ## License
 

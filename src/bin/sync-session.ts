@@ -11,9 +11,10 @@
 //   - All errors logged to ~/.chest-memory/hook.log
 
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, appendFileSync, existsSync, statSync, renameSync, readFileSync } from 'node:fs';
+import { mkdirSync, appendFileSync, existsSync, statSync, renameSync, readFileSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
+import { isPathInside } from '../lib/path-guard.js';
 import { fileURLToPath } from 'node:url';
 
 const LOG_DIR = process.env.CHEST_DATA_DIR ?? join(homedir(), '.chest-memory');
@@ -22,12 +23,13 @@ const LOG_MAX_BYTES = 1024 * 1024; // 1 MB → rotate
 
 function log(msg: string): void {
   try {
-    mkdirSync(LOG_DIR, { recursive: true });
+    mkdirSync(LOG_DIR, { recursive: true, mode: 0o700 });
     // Rotate if too big
     if (existsSync(LOG_FILE) && statSync(LOG_FILE).size > LOG_MAX_BYTES) {
       try { renameSync(LOG_FILE, LOG_FILE + '.1'); } catch { /* ignore */ }
     }
-    appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`);
+    // Owner-only: the log records session ids / cwd / transcript paths.
+    appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`, { mode: 0o600 });
   } catch { /* never throw from log */ }
 }
 
@@ -79,12 +81,28 @@ async function main(): Promise<void> {
   const __filename = fileURLToPath(import.meta.url);
   const importerPath = join(dirname(__filename), 'import-sessions.js');
 
-  if (!existsSync(transcriptPath)) {
+  // Security: only import transcripts under ~/.claude/projects. The payload
+  // arrives on stdin; an attacker who can inject the Stop-hook stream must not be
+  // able to point the importer at arbitrary files on disk.
+  const projectsRoot = join(homedir(), '.claude', 'projects');
+  let resolvedTranscript: string;
+  try {
+    resolvedTranscript = realpathSync(transcriptPath);
+  } catch {
+    log(`transcript unresolvable: ${transcriptPath}`);
+    process.exit(0);
+  }
+  if (!isPathInside(resolvedTranscript, projectsRoot)) {
+    log(`transcript_path outside ~/.claude/projects, refusing: ${resolvedTranscript}`);
+    process.exit(0);
+  }
+
+  if (!existsSync(resolvedTranscript)) {
     log(`transcript missing: ${transcriptPath}`);
     process.exit(0);
   }
 
-  const r = spawnSync(process.execPath, [importerPath, '--session-file', transcriptPath], {
+  const r = spawnSync(process.execPath, [importerPath, '--session-file', resolvedTranscript], {
     encoding: 'utf8',
     timeout: 30000,
   });

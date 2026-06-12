@@ -15,8 +15,8 @@ const LOG_FILE = join(LOG_DIR, 'hook.log');
 
 function log(msg: string): void {
   try {
-    mkdirSync(LOG_DIR, { recursive: true });
-    appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [precompact] ${msg}\n`);
+    mkdirSync(LOG_DIR, { recursive: true, mode: 0o700 });
+    appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [precompact] ${msg}\n`, { mode: 0o600 });
   } catch {
     /* logging must never throw */
   }

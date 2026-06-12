@@ -118,7 +118,7 @@ export class LocalExecutor implements ToolExecutor {
       case "chest_recall_file":
         return handleChestRecallFile(ChestRecallFileInputSchema.parse(args), this.server);
       case "chest_read_smart":
-        return handleChestReadSmart(ChestReadSmartInputSchema.parse(args));
+        return handleChestReadSmart(ChestReadSmartInputSchema.parse(args), this.server);
     }
   }
 }

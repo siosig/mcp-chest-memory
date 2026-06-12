@@ -13,11 +13,13 @@
   },
   "type": "module",
   "bin": {
+    "mcp-chest-memory": "dist/mcp/server.js",
     "chest-memory": "dist/mcp/server.js",
     "chest-server": "dist/http/server.js",
     "chest-index": "dist/cli/chest-index.js",
     "chest-memory-setup": "dist/bin/setup.js",
     "chest-memory-install-skill": "dist/bin/install-skill.js",
+    "chest-memory-install-hooks": "dist/bin/install-hooks.js",
     "chest-memory-import": "dist/bin/import-sessions.js",
     "chest-memory-sync": "dist/bin/sync-session.js",
     "chest-memory-stats": "dist/bin/stats.js",

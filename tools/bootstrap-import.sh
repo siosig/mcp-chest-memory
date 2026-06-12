@@ -63,8 +63,8 @@ if [ "$DRY_RUN" -eq 0 ]; then
   say "ensuring database schema at $DB_PATH"
   # "database is locked" here usually means a running chest-memory MCP server
   # (a Claude Code session) is holding the SQLite file open.
-  DATABASE_URL="file:$DB_PATH" npx prisma migrate deploy >/dev/null \
-    || fail "database migration failed — if the error says 'database is locked', close Claude Code sessions (their chest-memory MCP servers hold the database) and re-run" 2
+  CHEST_DB_PATH="$DB_PATH" node dist/bin/init-db.js 2>/dev/null \
+    || fail "database initialization failed — if the error says 'database is locked', close Claude Code sessions (their chest-memory MCP servers hold the database) and re-run" 2
 fi
 
 # --- 2. import past sessions ------------------------------------------------

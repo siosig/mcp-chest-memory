@@ -40,4 +40,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD curl -fsS http://127.0.0.1:8765/healthz || exit 1
 
 # Apply migrations, then start the REST backend.
-CMD ["sh", "-c", "DATABASE_URL=file:$CHEST_DB_PATH npx prisma migrate deploy && node dist/http/server.js"]
+CMD ["sh", "-c", "node dist/bin/init-db.js && node dist/http/server.js"]

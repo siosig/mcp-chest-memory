@@ -42,8 +42,9 @@ interface SettingsJson {
   [key: string]: unknown;
 }
 
-// Script base names double as markers for both command forms
-// (node <abs>/dist/bin/<script>.js and npx -y chest-memory-<name>).
+// The script name is the marker for current commands; the bin name still
+// matches (and thereby migrates or removes) legacy `npx -y chest-memory-*`
+// entries written by older setups.
 const HOOK_BINS: Record<HookEvent, { script: string; npxBin: string }> = {
   Stop: { script: 'sync-session.js', npxBin: 'chest-memory-sync' },
   PreCompact: { script: 'precompact.js', npxBin: 'chest-memory-precompact' },
@@ -75,15 +76,6 @@ export function buildNodeHookSpecs(opts: {
   return HOOK_EVENTS.map((event) => ({
     event,
     command: `${prefix}node ${shellQuote(join(opts.distBinDir, HOOK_BINS[event].script))}`,
-    markers: markersFor(event),
-  }));
-}
-
-/** Hook specs for an npm install: npx commands resolved from the registry. */
-export function buildNpxHookSpecs(): HookSpec[] {
-  return HOOK_EVENTS.map((event) => ({
-    event,
-    command: `npx -y ${HOOK_BINS[event].npxBin}`,
     markers: markersFor(event),
   }));
 }

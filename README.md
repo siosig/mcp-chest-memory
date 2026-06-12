@@ -59,39 +59,123 @@ feel the difference for yourself — getting started solo is very easy.
 - **Three deployment profiles** — same tools, same semantics: single PC,
   LAN-shared (Docker), or WAN (nginx + TLS)
 
-## Quick start (single PC)
+## Installation
 
-Requirements: Node.js ≥ 24.
+Requirements: Node.js ≥ 24. No clone needed — everything runs via `npx`.
 
-No clone needed — one command sets everything up:
+### Single PC (local SQLite)
+
+The database lives at `~/.chest-memory/chest.db` on your machine.
+
+#### One-command setup
 
 ```bash
 npx -y -p mcp-chest-memory chest-memory-setup --yes
 ```
 
-This registers the MCP server with Claude Code (it runs via
-`npx -y mcp-chest-memory`), installs the `/chest-memory` skill, and wires the
-hooks. The database schema is created automatically on first launch, and the
-embedding model (~120 MB) downloads in the background on first use — saves
-made before it is ready stay `pending` and are backfilled automatically.
+Registers the MCP server with Claude Code, installs the `/chest-memory` skill,
+and wires the hooks. The database schema is created automatically on first
+launch; the embedding model (~120 MB) downloads in the background on first
+use.
 
-### From source (development, LAN/WAN backend)
+#### Manual registration
 
 ```bash
-git clone https://github.com/siosig/mcp-chest-memory.git
-cd mcp-chest-memory
-./tools/install.sh
+claude mcp add -s user chest-memory -- npx -y mcp-chest-memory
 ```
 
-The installer is idempotent and will: build the project, create
-`~/.chest-memory/`, initialize the SQLite database, prefetch the embedding
-model (one-time download), register the MCP server with Claude Code, install
-the `/chest-memory` skill, and wire the hooks. Restart Claude Code and try:
+Then wire hooks and install the skill separately:
 
-> "Remember this: our staging DB resets every Monday."
-> "Did we hit this error before?"
+```bash
+npx -y -p mcp-chest-memory chest-memory-install-hooks
+npx -y -p mcp-chest-memory chest-memory-install-skill
+```
 
-Uninstall — for an npx install:
+### Import existing Claude Code history (optional)
+
+Seed the memory store from every past session under `~/.claude/projects/`
+and each project's curated auto-memory files (`memory/*.md`):
+
+```bash
+npx -y -p mcp-chest-memory chest-memory-import --all
+```
+
+Pass `--dry-run` to parse and report without writing. Pass `--skip-embed` to
+skip embedding backfill (background maintenance will catch up later).
+Re-running is safe — each session is wiped and re-inserted idempotently.
+
+### Multi-PC (LAN): Docker backend
+
+All clients share one SQLite database that lives on the Docker host.
+
+#### Start the backend (on the host that owns the data)
+
+Generate a token, then start the container:
+
+```bash
+openssl rand -hex 32   # copy this — you need it on every client
+cd deploy
+CHEST_API_TOKEN=<token> docker compose up -d
+```
+
+The SQLite file is persisted at `deploy/data/chest.db` and survives container
+re-creation. Keep a single backend replica — one writer process owns the
+database.
+
+#### Register each client PC
+
+```bash
+npx -y -p mcp-chest-memory chest-memory-setup --docker http://<host-ip>:8765 <token> --yes
+```
+
+#### Manual registration (each client)
+
+```bash
+claude mcp add -s user chest-memory \
+  -e CHEST_MODE=remote \
+  -e CHEST_REMOTE_URL=http://<host-ip>:8765 \
+  -e CHEST_API_TOKEN=<token> \
+  -- npx -y mcp-chest-memory
+```
+
+### Multi-PC (WAN): Docker + nginx TLS
+
+Same Docker backend as LAN, published through nginx with TLS.
+
+#### Start the backend
+
+Same as LAN. If nginx runs on the same host, bind the port to localhost:
+change the port mapping in `docker-compose.yml` to `127.0.0.1:8765:8765`.
+
+#### Configure nginx
+
+Copy [`deploy/nginx.conf.example`](deploy/nginx.conf.example) into your nginx
+configuration, set `server_name` and certificate paths, then
+`nginx -t && systemctl reload nginx`. The example publishes the backend under
+the `/chest-memory` path prefix; a health probe is available at
+`https://chest.example.com/chest-memory/healthz`.
+
+#### Register each client PC
+
+```bash
+npx -y -p mcp-chest-memory chest-memory-setup --nginx https://chest.example.com/chest-memory <token> --yes
+```
+
+#### Manual registration (each client)
+
+```bash
+claude mcp add -s user chest-memory \
+  -e CHEST_MODE=remote \
+  -e CHEST_REMOTE_URL=https://chest.example.com/chest-memory \
+  -e CHEST_API_TOKEN=<token> \
+  -- npx -y mcp-chest-memory
+```
+
+Defense in depth: TLS terminates at nginx, while the backend still verifies
+the Bearer token — a proxy misconfiguration never exposes an unauthenticated
+backend.
+
+### Uninstall
 
 ```bash
 claude mcp remove -s user chest-memory
@@ -99,31 +183,6 @@ npx -y -p mcp-chest-memory chest-memory-install-hooks --remove
 rm -rf ~/.claude/skills/chest-memory
 rm -rf ~/.chest-memory   # only if you also want to delete your memories
 ```
-
-For a source install (asks before touching your data):
-
-```bash
-./tools/uninstall.sh            # interactive
-./tools/uninstall.sh --purge    # also delete ~/.chest-memory
-```
-
-### Importing your existing Claude Code history
-
-Seed the memory store from every past session under `~/.claude/projects/`
-(memories, per-file edit history, events) and from each project's curated
-auto-memory files (`memory/*.md`), then backfill embeddings — all in one
-command:
-
-```bash
-npx -y -p mcp-chest-memory chest-memory-import --all
-```
-
-The embedding model (~120 MB) is downloaded on first use if not already
-present. Pass `--skip-embed` to skip the embedding backfill (background
-maintenance will catch up later). Pass `--dry-run` to parse and report
-without writing anything.
-
-Re-running is safe: each session is wiped and re-inserted idempotently.
 
 ## Daily usage
 
@@ -175,67 +234,6 @@ own. Everything below is optional:
 | `chest_consolidate` | Compress cold memories into learning summaries |
 | `chest_read_smart` | Diff-cached file read (returns only changed chunks) |
 
-## Multi-PC (LAN): Docker backend
-
-On the host that owns the data:
-
-```bash
-cd deploy
-CHEST_API_TOKEN=$(openssl rand -hex 32) docker compose up -d
-```
-
-The SQLite file is persisted on the host at `deploy/data/chest.db` and
-survives container re-creation. Keep a single backend replica — one writer
-process owns the database.
-
-On each client PC:
-
-```bash
-./tools/install.sh --remote http://<host-ip>:8765 --token <same token>
-```
-
-Every client now shares the same memory: a `chest_remember` on PC-A is
-recallable from PC-B. The backend enforces the Bearer token even on the LAN.
-
-## Multi-PC (WAN): publishing through nginx
-
-1. Run the Docker backend as above (bind it to localhost if nginx runs on the
-   same host: change the port mapping to `127.0.0.1:8765:8765`).
-2. Copy [`deploy/nginx.conf.example`](deploy/nginx.conf.example) into your
-   nginx configuration, set `server_name` and certificate paths, then
-   `nginx -t && systemctl reload nginx`. The example publishes the backend
-   under the `/chest-memory` path prefix (nginx strips the prefix before
-   forwarding, so the backend itself is unchanged); a health probe is
-   available at `https://chest.example.com/chest-memory/healthz`.
-3. Register clients against the public URL including the prefix:
-
-```bash
-./tools/install.sh --remote https://chest.example.com/chest-memory --token <token>
-```
-
-Defense in depth: TLS terminates at nginx, while the backend still verifies
-the Bearer token itself — a proxy misconfiguration never exposes an
-unauthenticated backend. An optional HTTP Basic layer is sketched in the
-example config.
-
-## Embeddings
-
-Embeddings are computed locally by `Xenova/multilingual-e5-small`
-(quantized ONNX, 384 dimensions) via transformers.js — no API key, and fully
-offline after the one-time model download (`tools/install.sh` prefetches it).
-
-Saving never depends on embedding availability: if the model is unavailable,
-the memory is stored with `embedding_status=pending` and backfilled later by
-`chest-index`. Vectors are stamped with the model and dimension that produced
-them; if a future release changes the bundled model, mismatched vectors are
-excluded from vector recall (full-text recall is unaffected) until you
-re-index:
-
-```bash
-chest-index status    # shows how many vectors don't match the current model
-chest-index reembed   # resets them to pending and re-embeds
-```
-
 ## How it works
 
 ### Architecture
@@ -268,6 +266,70 @@ The MCP tool surface is identical in every profile: the stdio server either
 executes tools in-process (local) or forwards the same JSON payload to the
 backend (remote), which runs the very same executor code.
 
+
+### Memory layers
+
+Six layers define how memories are stored and decay:
+
+| Layer | Meaning | Default TTL | Auto-protected |
+|---|---|---|---|
+| `goal` | Project objectives and targets | none | — |
+| `context` | Background, timing, situational facts | 30 days | — |
+| `emotion` | Tone, mood, and emotional state | 14 days | — |
+| `implementation` | Code/config that worked or didn't; how things were tried | 90 days | — |
+| `realize` | Failures, pitfalls, and traps that must not be repeated | none | **yes** |
+| `learning` | Insights, decisions, and belief updates | 365 days | — |
+
+`realize`-layer memories are created with `protected=1` and survive all
+automatic forgetting sweeps. `goal` has no TTL and is exempt from forgetting.
+`importance >= 0.9` pins any memory regardless of layer.
+
+`context`, `emotion`, and `implementation` are subject to sleep-mode
+consolidation: once cold (heat < 30) and older than 7 days, clusters of ≥ 2
+per (entity, layer) are compressed into a single protected `learning` summary.
+
+Accepted layer aliases: `decisions`/`insights`/`learned` → `learning`;
+`warnings`/`pitfalls`/`rule` → `realize`; `why`/`goals` → `goal`; `how`/`tried` → `implementation`.
+
+### Forgetting
+
+Forgetting risk is computed per memory with an Ebbinghaus-inspired formula:
+
+```
+risk = heatFactor × importanceFactor × timeFactor
+
+heatFactor       = 1 - (heatScore / 100)
+importanceFactor = 1 - importance
+timeFactor       = daysSinceLastAccess × (1 + daysSinceLastAccess / 30)
+```
+
+| risk | action |
+|---|---|
+| < 50 | keep |
+| 50 – 199 | **compress** — archived and summarised into a `learning` entry |
+| ≥ 200 | **drop** — fully deleted |
+
+The heat score (0–100) is computed from access frequency and recency:
+30-day access count (×3, cap 30) + 90-day count (cap 20) + recency bonus
+(+20 if ≤ 7 days, −10 if > 90 days) + tenure bonus (cap 15) + importance
+boost (up to 15). Bands: `hot` ≥ 70 / `warm` ≥ 40 / `cold` ≥ 20 / `frozen` < 20.
+
+### Supersession (overwrite detection)
+
+When a new memory is saved, the next maintenance pass compares it against
+recent memories of the same entity and layer using cosine similarity. If a
+near-duplicate is found (cosine ≥ 0.97), the older memory is archived and
+linked to the new one — so the store never accumulates stale near-copies.
+
+Guards that reduce false positives:
+- Same entity + same layer required
+- 90-day time window and 200-peer row cap per entity (prevents O(n²) scans)
+- JSON memories with identical top-level key shapes are **not** superseded
+  (periodic snapshots / file-edit logs that look structurally similar but hold
+  distinct facts)
+
+The `chest_remember` tool also accepts a `supersedes` list for manual
+supersession without waiting for the batch sweep.
 
 ### Storage
 
@@ -364,6 +426,36 @@ pnpm typecheck
 pnpm test          # node:test against a throwaway SQLite db
 pnpm build
 ./tools/check-rebrand.sh   # release gate: naming/history/language checks
+```
+
+### From source (for development or self-hosted LAN/WAN backend)
+
+```bash
+git clone https://github.com/siosig/mcp-chest-memory.git
+cd mcp-chest-memory
+./tools/install.sh
+```
+
+The installer is idempotent: build, `~/.chest-memory/` creation, SQLite
+schema init, embedding model prefetch, MCP registration, skill install, hooks.
+For remote mode: `./tools/install.sh --remote <url> --token <token>`.
+
+## Embeddings
+
+Embeddings are computed locally by `Xenova/multilingual-e5-small`
+(quantized ONNX, 384 dimensions) via transformers.js — no API key, and fully
+offline after the one-time model download (`tools/install.sh` prefetches it).
+
+Saving never depends on embedding availability: if the model is unavailable,
+the memory is stored with `embedding_status=pending` and backfilled later by
+`chest-index`. Vectors are stamped with the model and dimension that produced
+them; if a future release changes the bundled model, mismatched vectors are
+excluded from vector recall (full-text recall is unaffected) until you
+re-index:
+
+```bash
+chest-index status    # shows how many vectors don't match the current model
+chest-index reembed   # resets them to pending and re-embeds
 ```
 
 ## License

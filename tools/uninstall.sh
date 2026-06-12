@@ -4,7 +4,8 @@
 # Removes what tools/install.sh set up:
 #   1. the MCP server registration (claude mcp remove)
 #   2. the /chest-memory skill
-#   3. optionally the data directory (asks first; memories live there)
+#   3. the Claude Code hooks (Stop/PreCompact/SessionStart)
+#   4. optionally the data directory (asks first; memories live there)
 #
 # Options:
 #   --purge      delete the data directory without asking
@@ -48,7 +49,16 @@ else
   say "no skill found (skipped)"
 fi
 
-# --- 3. data ------------------------------------------------------------------
+# --- 3. hooks -----------------------------------------------------------------
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -f "$ROOT/dist/bin/install-hooks.js" ]; then
+  node "$ROOT/dist/bin/install-hooks.js" --remove \
+    || say "WARNING: hook removal failed — check ~/.claude/settings.json manually"
+else
+  say "dist/ not built — remove chest-memory hook entries from ~/.claude/settings.json manually if present"
+fi
+
+# --- 4. data ------------------------------------------------------------------
 if [ -d "$DATA_DIR" ]; then
   if [ -z "$PURGE" ]; then
     printf '[chest] Delete memory data at %s? [y/N] ' "$DATA_DIR"

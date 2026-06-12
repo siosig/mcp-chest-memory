@@ -13,6 +13,16 @@ function syncEmbedDisabled(): boolean {
   return process.env.CHEST_SYNC_EMBED === "0";
 }
 
+// Upper bound for write-time embedding. The very first call after `npx -y
+// mcp-chest-memory` may trigger the one-time model download (~120 MB); the
+// save must not hang on that, so on timeout the row stays pending and the
+// background sweep finishes the job once the model is ready (the download
+// keeps running on the shared extractor promise).
+function syncEmbedTimeoutMs(): number {
+  const raw = Number(process.env.CHEST_SYNC_EMBED_TIMEOUT_MS ?? "");
+  return Number.isFinite(raw) && raw > 0 ? raw : 8000;
+}
+
 /**
  * Embed one memory's content in-process and mark it done.
  * Returns true when the vector was stored, false when the row stays pending.
@@ -21,7 +31,14 @@ export async function embedMemorySync(memoryId: number, content: string): Promis
   if (syncEmbedDisabled()) return false;
   const provider = activeProvider();
   try {
-    const vectors = await provider.embedPassages([content]);
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), syncEmbedTimeoutMs());
+      timer.unref?.();
+    });
+    const vectors = await Promise.race([provider.embedPassages([content]), timeout]).finally(
+      () => timer && clearTimeout(timer),
+    );
     const vec = vectors?.[0];
     if (!vec) return false;
     await rawRun(

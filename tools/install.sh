@@ -9,16 +9,19 @@
 #     4. prefetches the local embedding model (skipped when cached)
 #     5. registers the MCP server with Claude Code (stdio, local mode)
 #     6. installs the /chest-memory skill
+#     7. wires the Claude Code hooks (Stop auto-capture, PreCompact/
+#        SessionStart work-state snapshots)
 #
 # Remote client (LAN/WAN):
 #   ./tools/install.sh --remote https://chest.example.com --token <TOKEN>
-#     Registers the MCP server in remote mode; steps 3-4 are skipped because
-#     the backend owns the database and embeddings.
+#     Registers the MCP server in remote mode; steps 3-4 and 7 are skipped
+#     because the backend owns the database, embeddings, and capture.
 #
 # Options:
 #   --remote URL    register in remote mode against this backend URL
 #   --token TOKEN   bearer token for --remote (required with --remote)
 #   --skip-model    do not prefetch the embedding model now
+#   --skip-hooks    do not wire the Claude Code hooks
 #   --data-dir DIR  override the data directory (default: ~/.chest-memory)
 
 set -euo pipefail
@@ -26,6 +29,7 @@ set -euo pipefail
 REMOTE_URL=""
 API_TOKEN=""
 SKIP_MODEL=0
+SKIP_HOOKS=0
 DATA_DIR="${CHEST_DATA_DIR:-$HOME/.chest-memory}"
 
 while [ $# -gt 0 ]; do
@@ -33,6 +37,7 @@ while [ $# -gt 0 ]; do
     --remote)    REMOTE_URL="${2:?--remote requires a URL}"; shift 2 ;;
     --token)     API_TOKEN="${2:?--token requires a value}"; shift 2 ;;
     --skip-model) SKIP_MODEL=1; shift ;;
+    --skip-hooks) SKIP_HOOKS=1; shift ;;
     --data-dir)  DATA_DIR="${2:?--data-dir requires a path}"; shift 2 ;;
     -h|--help)   grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -84,7 +89,7 @@ if [ -z "$REMOTE_URL" ]; then
   fi
   DB_EXISTED=0; [ -f "$DB_PATH" ] && DB_EXISTED=1
   say "initializing database at $DB_PATH"
-  DATABASE_URL="file:$DB_PATH" npx prisma migrate deploy >/dev/null || fail "database migration failed" 2
+  CHEST_DB_PATH="$DB_PATH" node dist/bin/init-db.js 2>/dev/null || fail "database initialization failed" 2
   if [ "$DB_EXISTED" -eq 1 ]; then track "[updated]" "$DB_PATH (migrations applied)"; else track "[new]" "$DB_PATH (SQLite database)"; fi
   # --- 4. embedding model ----------------------------------------------------
   if [ "$SKIP_MODEL" -eq 1 ]; then
@@ -146,6 +151,21 @@ if node dist/bin/install-skill.js --force >/dev/null; then
   if [ "$SKILL_EXISTED" -eq 1 ]; then track "[updated]" "$SKILL_TARGET (/chest-memory skill)"; else track "[new]" "$SKILL_TARGET (/chest-memory skill)"; fi
 else
   say "WARNING: skill installation failed (run: node dist/bin/install-skill.js --force)"
+fi
+
+# --- 7. Claude Code hooks -----------------------------------------------------
+# Stop auto-captures each session; PreCompact/SessionStart carry a work-state
+# snapshot across context compaction. The hook commands write to the local
+# database, so this step only applies in local mode.
+SETTINGS_JSON="$HOME/.claude/settings.json"
+if [ -n "$REMOTE_URL" ]; then
+  say "hooks skipped (remote mode: the backend owns capture)"
+elif [ "$SKIP_HOOKS" -eq 1 ]; then
+  say "hooks skipped (--skip-hooks); wire later with: node dist/bin/install-hooks.js"
+elif node dist/bin/install-hooks.js --data-dir "$DATA_DIR" --db-path "$DB_PATH"; then
+  track "[updated]" "$SETTINGS_JSON (Stop/PreCompact/SessionStart hooks)"
+else
+  say "WARNING: hook setup failed (run: node dist/bin/install-hooks.js)"
 fi
 
 # --- summary: every file/directory this run created or modified ---------------

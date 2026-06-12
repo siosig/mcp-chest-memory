@@ -9,7 +9,8 @@
 // Does three things:
 //   1. Registers the MCP server with Claude Code
 //   2. Installs the SKILL.md (agent trigger phrases)
-//   3. Configures the Stop hook (auto-capture sessions)
+//   3. Configures the hooks: Stop (auto-capture sessions), PreCompact and
+//      SessionStart (work-state snapshot across context compaction)
 //
 // After setup, every Claude Code session:
 //   - Auto-captures decisions, learnings, realizes to local memory
@@ -20,11 +21,12 @@
 // Our MCP approach gives more precision, but the setup was 3 manual steps.
 // This command eliminates that friction entirely.
 
-import { execSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { buildNodeHookSpecs, wireHooks } from '../lib/hooks-install.js';
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
@@ -42,7 +44,8 @@ Usage:
 What it does:
   1. Registers chest-memory MCP server with Claude Code
   2. Installs SKILL.md (teaches the agent when to recall/remember)
-  3. Configures Stop hook (auto-captures every session)
+  3. Configures hooks: Stop (auto-capture), PreCompact/SessionStart
+     (work-state snapshot across context compaction)
 
 After setup, just chat with Claude Code normally.
 Add "Use Chest" to any prompt to trigger memory recall.`);
@@ -60,7 +63,6 @@ const SKILL_SRC = join(dirname(__filename), '..', 'skill', 'SKILL.md');
 
 const SERVER_NAME = 'chest-memory';
 const MCP_COMMAND = `claude mcp add -s user ${SERVER_NAME} -- npx -y mcp-chest-memory`;
-const HOOK_COMMAND = 'npx -y chest-memory-sync';
 
 const CHECK = '\x1b[32m✓\x1b[0m';
 const SKIP = '\x1b[33m○\x1b[0m';
@@ -168,54 +170,32 @@ if (!existsSync(SKILL_SRC)) {
 }
 console.log('');
 
-// ── Step 3: Configure Stop hook ──────────────────────────
+// ── Step 3: Configure hooks ──────────────────────────────
 
-console.log(`${BOLD}[3/3]${RESET} Configuring auto-capture hook...`);
+console.log(`${BOLD}[3/3]${RESET} Configuring hooks (auto-capture + compaction snapshots)...`);
 
-interface SettingsJson {
-  hooks?: {
-    Stop?: Array<{
-      matcher: string;
-      hooks: Array<{ type: string; command: string }>;
-    }>;
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-}
-
-let settings: SettingsJson = {};
-if (existsSync(SETTINGS_PATH)) {
-  try {
-    settings = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'));
-  } catch {
-    console.log(`  ${FAIL} Could not parse ${SETTINGS_PATH}`);
-    settings = {};
+// Absolute node commands against this install's dist/bin. An `npx -y` form
+// would re-resolve (and potentially re-download) a package on every hook
+// invocation — and `chest-memory-sync` is a bin name, not a package name, so
+// npx would actually resolve the wrong package.
+const hookSpecs = buildNodeHookSpecs({ distBinDir: dirname(__filename) });
+if (dryRun) {
+  for (const spec of hookSpecs) {
+    console.log(`  ${DIM}[dry-run] Would wire ${spec.event} → ${spec.command}${RESET}`);
   }
-}
-
-// Check if hook already exists
-const stopHooks = settings?.hooks?.Stop ?? [];
-const alreadyHooked = stopHooks.some((entry) =>
-  entry.hooks?.some((h) => h.command?.includes('chest-memory-sync'))
-);
-
-if (alreadyHooked) {
-  console.log(`  ${SKIP} Stop hook already configured`);
-} else if (dryRun) {
-  console.log(`  ${DIM}[dry-run] Would add Stop hook to ${SETTINGS_PATH}${RESET}`);
 } else {
-  // Add hook
-  if (!settings.hooks) settings.hooks = {};
-  if (!settings.hooks.Stop) settings.hooks.Stop = [];
-
-  settings.hooks.Stop.push({
-    matcher: '',
-    hooks: [{ type: 'command', command: HOOK_COMMAND }],
-  });
-
-  mkdirSync(CLAUDE_DIR, { recursive: true });
-  writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf8');
-  console.log(`  ${CHECK} Stop hook added → ${SETTINGS_PATH}`);
+  try {
+    for (const result of wireHooks(SETTINGS_PATH, hookSpecs)) {
+      if (result.action === 'unchanged') {
+        console.log(`  ${SKIP} ${result.event} hook already configured`);
+      } else {
+        console.log(`  ${CHECK} ${result.event} hook ${result.action} → ${SETTINGS_PATH}`);
+      }
+    }
+  } catch (e: unknown) {
+    console.log(`  ${FAIL} Could not update ${SETTINGS_PATH}: ${e instanceof Error ? e.message : String(e)}`);
+    console.log(`  ${DIM}The file was left untouched — fix its JSON and re-run.${RESET}`);
+  }
 }
 console.log('');
 

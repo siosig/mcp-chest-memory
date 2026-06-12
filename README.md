@@ -2,6 +2,15 @@
 
 **English** | [日本語](README.ja.md)
 
+**These daily frustrations end today:**
+
+- Giving the same instructions over and over
+- Answering the same questions again and again
+- Watching your LLM stumble in the same place every time
+- Burning through tokens so fast you keep hitting your limits
+
+mcp-chest-memory makes all of these a thing of the past — automatically.
+
 - **Add this MCP server — then there is nothing left for you to do.**
 - **It automatically remembers what was worked on, why things failed, and
   what research concluded — across all your projects.**
@@ -80,6 +89,20 @@ backend (remote), which runs the very same executor code.
 
 Requirements: Node.js ≥ 22.
 
+No clone needed — one command sets everything up:
+
+```bash
+npx -y -p mcp-chest-memory chest-memory-setup --yes
+```
+
+This registers the MCP server with Claude Code (it runs via
+`npx -y mcp-chest-memory`), installs the `/chest-memory` skill, and wires the
+hooks. The database schema is created automatically on first launch, and the
+embedding model (~120 MB) downloads in the background on first use — saves
+made before it is ready stay `pending` and are backfilled automatically.
+
+### From source (development, LAN/WAN backend)
+
 ```bash
 git clone https://github.com/siosig/mcp-chest-memory.git
 cd mcp-chest-memory
@@ -88,8 +111,8 @@ cd mcp-chest-memory
 
 The installer is idempotent and will: build the project, create
 `~/.chest-memory/`, initialize the SQLite database, prefetch the embedding
-model (one-time download), register the MCP server with Claude Code, and
-install the `/chest-memory` skill. Restart Claude Code and try:
+model (one-time download), register the MCP server with Claude Code, install
+the `/chest-memory` skill, and wire the hooks. Restart Claude Code and try:
 
 > "Remember this: our staging DB resets every Monday."
 > "Did we hit this error before?"
@@ -126,8 +149,8 @@ own. Everything below is optional:
 - Invoke **`/chest-memory`** to save the recent context explicitly,
   or **`/chest-memory status`** to check store health
 - Ask **"did we hit this before?"** to force a recall
-- **Optional**: `chest-memory-setup --yes` wires the Claude Code hooks
-  (session auto-capture on Stop, snapshot save/restore around compaction)
+- Hooks are wired by `install.sh` (session auto-capture on Stop, snapshot
+  save/restore around compaction) — pass `--skip-hooks` to opt out
 
 ### What runs automatically even if you do nothing
 
@@ -141,8 +164,8 @@ own. Everything below is optional:
 - **During a session** (skill-driven): recall at task start and before
   editing files with history; saves after errors are resolved or decisions
   are made
-- **With hooks enabled**: every session is captured on Stop, and work-state
-  snapshots survive context compaction
+- **On every session end** (hooks, wired by `install.sh`): the session is
+  captured on Stop, and work-state snapshots survive context compaction
 - **In the background after saves** (throttled, at most once per
   `CHEST_MAINTENANCE_INTERVAL_SEC`, default 10 min): activation decay
   recompute, TTL expiry and archive sweep, supersession detection,
@@ -307,10 +330,11 @@ automatic passes and drive everything via `chest-index` yourself.
 - **Skill**: `/chest-memory` (installed by `install.sh`) auto-classifies the
   recent conversation into `realize` vs `learning` and saves it with the
   rationale shown; `/chest-memory status` reports store health
-- **Hooks** (optional): `chest-memory-precompact` saves a work-state snapshot
-  before context compaction; `chest-memory-session-start` restores it;
-  `chest-memory-sync` (Stop hook) auto-captures sessions —
-  `chest-memory-setup --yes` wires these for you
+- **Hooks** (wired by `install.sh`, or `chest-memory-setup --yes` for npm
+  installs): `chest-memory-precompact` saves a work-state snapshot before
+  context compaction; `chest-memory-session-start` restores it;
+  `chest-memory-sync` (Stop hook) auto-captures sessions. Re-wire any time
+  with `node dist/bin/install-hooks.js`; remove with `--remove`
 
 ## Development
 

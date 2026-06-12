@@ -11,6 +11,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { dbPath } from "../../utils/env.js";
+import { ensureSchema } from "./migrate.js";
 
 // Resolve the SQLite location before the client is instantiated. An explicit
 // DATABASE_URL (e.g. file:/data/chest.db inside the Docker backend) wins over
@@ -60,6 +61,10 @@ let initialized = false;
  */
 export async function ensurePrismaInitialized(): Promise<void> {
   if (initialized) return;
+
+  // Apply bundled migrations first so `npx -y mcp-chest-memory` works on a
+  // brand-new machine without any separate setup step.
+  await ensureSchema();
 
   // WAL keeps readers non-blocking; busy_timeout smooths over short lock
   // contention; foreign_keys is off by default in SQLite and must be opted in.

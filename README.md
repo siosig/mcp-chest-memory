@@ -5,8 +5,10 @@
 - **Add this MCP server — then there is nothing left for you to do.**
 - **It automatically remembers what was worked on, why things failed, and
   what research concluded — across all your projects.**
-- **You never have to answer the same question twice.**
-- **Your LLM never makes the same mistake twice.**
+
+**With this MCP installed, your LLM grows together with you: mistakes and
+repeated questions keep decreasing, and it gets ever closer to an LLM that
+is truly yours.**
 
 **Local-first persistent memory for coding agents, served over MCP.**
 Your agent forgets everything when a session ends; chest gives it a durable,

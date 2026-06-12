@@ -32,6 +32,10 @@ think about it — so you stop giving the same instructions over and over.
 
 Optimized for Claude Code (bundled skill + hooks), works with any MCP client.
 
+This MCP server is built to be easy to adopt. It scales from personal use to
+multiple machines and on to a whole project team. Start with personal use and
+feel the difference for yourself — getting started solo is very easy.
+
 ## Features
 
 - **6-layer structured memory** — `goal` / `context` / `emotion` /
@@ -117,7 +121,16 @@ the `/chest-memory` skill, and wire the hooks. Restart Claude Code and try:
 > "Remember this: our staging DB resets every Monday."
 > "Did we hit this error before?"
 
-Uninstall (asks before touching your data):
+Uninstall — for an npx install:
+
+```bash
+claude mcp remove -s user chest-memory
+npx -y -p mcp-chest-memory chest-memory-install-hooks --remove
+rm -rf ~/.claude/skills/chest-memory
+rm -rf ~/.chest-memory   # only if you also want to delete your memories
+```
+
+For a source install (asks before touching your data):
 
 ```bash
 ./tools/uninstall.sh            # interactive
@@ -129,6 +142,15 @@ Uninstall (asks before touching your data):
 Seed the memory store from every past session under `~/.claude/projects/`
 (memories, per-file edit history, events) and from each project's curated
 auto-memory files (`memory/*.md`), then backfill embeddings:
+
+Without a clone (npx install):
+
+```bash
+npx -y -p mcp-chest-memory chest-memory-import --all
+npx -y -p mcp-chest-memory chest-index up --embed-cycle
+```
+
+From a source checkout (also prefetches the model and drains the backlog):
 
 ```bash
 ./tools/bootstrap-import.sh             # import everything
@@ -149,8 +171,9 @@ own. Everything below is optional:
 - Invoke **`/chest-memory`** to save the recent context explicitly,
   or **`/chest-memory status`** to check store health
 - Ask **"did we hit this before?"** to force a recall
-- Hooks are wired by `install.sh` (session auto-capture on Stop, snapshot
-  save/restore around compaction) — pass `--skip-hooks` to opt out
+- Hooks are wired automatically by the installer (`chest-memory-setup` for
+  npx, `install.sh --skip-hooks` to opt out for source installs): session
+  auto-capture on Stop, snapshot save/restore around compaction
 
 ### What runs automatically even if you do nothing
 

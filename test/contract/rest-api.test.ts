@@ -1,11 +1,19 @@
 // REST API contract tests (in-process via Hono app.request — no sockets).
-import { describe, test } from "node:test";
+import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { resetDb } from "../helpers/db.js";
+import { ensurePrismaInitialized } from "../../src/lib/db/prisma-client.js";
 import { createApp } from "../../src/http/app.js";
 
 const TOKEN = "test-token-123";
 const app = createApp({ token: TOKEN, version: "test" });
+
+// The production REST server initializes Prisma before it starts serving;
+// mirror that here so /healthz observes a ready DB (an uninitialized client
+// correctly reports 503, which is exercised implicitly by skipping this).
+before(async () => {
+  await ensurePrismaInitialized();
+});
 
 function authHeaders(token: string = TOKEN): Record<string, string> {
   return { authorization: `Bearer ${token}`, "content-type": "application/json" };

@@ -14,6 +14,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { DatabaseSync } from "node:sqlite";
 import { dbPath } from "../../utils/env.js";
 
 function resolveDbFile(): string {
@@ -47,7 +48,6 @@ export async function ensureSchema(): Promise<void> {
   const file = resolveDbFile();
   mkdirSync(dirname(file), { recursive: true });
 
-  const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(file);
   try {
     db.exec(

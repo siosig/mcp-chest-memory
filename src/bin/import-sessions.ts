@@ -5,6 +5,7 @@
 //   node dist/bin/import-sessions.js [project_dir ...]
 //   node dist/bin/import-sessions.js --dry-run [project_dir ...]
 //   node dist/bin/import-sessions.js --all                   (scans all ~/.claude/projects/*)
+//   node dist/bin/import-sessions.js --skip-embed            (skip embedding backfill after import)
 //   node dist/bin/import-sessions.js --session-file <path>   (single jsonl — used by hook)
 //
 // All inserts are IDEMPOTENT: existing data for a given session_id is wiped before re-insert.
@@ -18,6 +19,7 @@ import { extractSession, type ExtractionResult } from '../lib/session-extractor.
 import { collectMemoryFiles } from '../lib/memory-md.js';
 import { importMemoryDir, resolveProjectEntity } from '../lib/memory-md-import.js';
 import { redactText } from '../lib/redact.js';
+import { runLocalPendingSweep } from '../lib/embedding/sync-embed.js';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
 
@@ -36,6 +38,7 @@ function usage(): void {
   node dist/bin/import-sessions.js [--dry-run] [--all | <projectDir> [<projectDir> ...]]
     --all         : scan every project under ~/.claude/projects/*
     --dry-run     : parse + extract but do not write to DB
+    --skip-embed  : skip embedding backfill after import
     projectDir    : absolute path to a project dir (must contain *.jsonl files)`);
 }
 
@@ -114,6 +117,7 @@ async function main() {
   if (args.includes('-h') || args.includes('--help')) { usage(); return; }
   const dryRun = args.includes('--dry-run');
   const scanAll = args.includes('--all');
+  const skipEmbed = args.includes('--skip-embed');
   const sessionFileIdx = args.indexOf('--session-file');
   const sessionFile = sessionFileIdx >= 0 ? args[sessionFileIdx + 1] : null;
   const projectArgs = args.filter((a, i) => !a.startsWith('--') && (sessionFileIdx < 0 || i !== sessionFileIdx + 1));
@@ -254,6 +258,21 @@ async function main() {
   console.log(`  file_edits inserted:${agg.file_edits_inserted}${dryRun ? ' (DRY RUN)' : ''}`);
   console.log(`  memory files:       ${agg.memory_files_imported}${dryRun ? ' (DRY RUN)' : ''}`);
   console.log(`  errors:             ${agg.errors}`);
+
+  if (!dryRun && !skipEmbed) {
+    console.log(`\n=== Embedding backfill ===`);
+    console.log(`  Backfilling embeddings for imported memories (first run downloads the model if needed)...`);
+    try {
+      const r = await runLocalPendingSweep(1_000_000);
+      console.log(`  embedded: ${r.embedded}/${r.scanned} pending rows`);
+      if (r.embedded < r.scanned) {
+        console.log(`  WARNING: model not yet available — ${r.scanned - r.embedded} rows stay pending and will be backfilled by background maintenance`);
+      }
+    } catch (e: unknown) {
+      console.warn(`  WARNING: embedding backfill failed — rows stay pending and will be retried by background maintenance`);
+      console.warn(`  ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
 
   if (!dryRun) await shutdownPrisma();
 }

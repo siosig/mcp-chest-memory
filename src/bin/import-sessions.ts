@@ -199,6 +199,10 @@ async function main() {
     const dirName = decodedParts.length > 1 ? decodedParts[decodedParts.length - 1] : rawDirName;
     console.log(`\n=== Project: ${dirName} (${files.length} session files) ===`);
 
+    // Memory files share the entity of the project's sessions; keep the last
+    // detected session project name so both land on the same entity.
+    let memoryProjectName = dirName;
+
     for (const f of files) {
       let parsed;
       try { parsed = parseSessionFile(f); } catch (e: unknown) {
@@ -209,6 +213,7 @@ async function main() {
       if (!parsed) { agg.sessions_skipped++; continue; }
 
       const projectName = detectProjectName(parsed) || dirName;
+      memoryProjectName = projectName;
       const result = extractSession(parsed, projectName);
       agg.sessions_parsed++;
       agg.memories_planned += result.memories.length;
@@ -231,7 +236,7 @@ async function main() {
     }
 
     try {
-      const mem = await importMemoryDir(projectDir, dirName, dryRun);
+      const mem = await importMemoryDir(projectDir, memoryProjectName, dryRun);
       agg.memory_files_imported += mem.memories;
       if (!dryRun && mem.files > 0) console.log(`  [ok] memory files: ${mem.memories} imported`);
     } catch (e: unknown) {

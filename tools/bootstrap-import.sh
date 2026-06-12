@@ -61,7 +61,10 @@ fi
 if [ "$DRY_RUN" -eq 0 ]; then
   mkdir -p "$DATA_DIR"
   say "ensuring database schema at $DB_PATH"
-  DATABASE_URL="file:$DB_PATH" npx prisma migrate deploy >/dev/null || fail "database migration failed" 2
+  # "database is locked" here usually means a running chest-memory MCP server
+  # (a Claude Code session) is holding the SQLite file open.
+  DATABASE_URL="file:$DB_PATH" npx prisma migrate deploy >/dev/null \
+    || fail "database migration failed — if the error says 'database is locked', close Claude Code sessions (their chest-memory MCP servers hold the database) and re-run" 2
 fi
 
 # --- 2. import past sessions ------------------------------------------------

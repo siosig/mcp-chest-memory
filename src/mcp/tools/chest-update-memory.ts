@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma, rawGet } from "../../lib/db/prisma-client.js";
 import { redactText } from "../../lib/redact.js";
 import { MAX_CONTENT_CHARS } from "../../lib/embedding/config.js";

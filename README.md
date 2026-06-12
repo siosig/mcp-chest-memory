@@ -7,6 +7,10 @@ Your agent forgets everything when a session ends; chest gives it a durable,
 searchable "past self" — failures it must not repeat, decisions and their
 reasons, per-file edit history — stored in a single SQLite file on your machine.
 
+One memory store spans **all your projects and all your LLM agents**: knowledge
+is recalled and recorded automatically by the LLM itself, without you having to
+think about it — so you stop giving the same instructions over and over.
+
 Optimized for Claude Code (bundled skill + hooks), works with any MCP client.
 
 ## Features

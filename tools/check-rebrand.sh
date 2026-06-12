@@ -50,14 +50,25 @@ fi
 #   - test/                      multilingual search fixtures
 #   - src/skill/SKILL.md         Japanese trigger phrases (product feature)
 #   - session-extractor/parser   regex literals matching Japanese user input
+#   - README.ja.md               deliberate Japanese translation of the README
+#   - README.md                  the language-switcher link line only
 # Everything else must be English-only.
 hits=$(git ls-files -z -- ':!test/' ':!src/skill/SKILL.md' \
   ':!src/lib/session-extractor.ts' ':!src/lib/session-parser.ts' \
+  ':!README.ja.md' ':!README.md' \
   | xargs -0 grep -lP '[\p{Hiragana}\p{Katakana}]' 2>/dev/null || true)
 if [ -n "$hits" ]; then
   note "FAIL: Japanese text found outside test fixtures / skill triggers:"; note "$hits"; FAIL=1
 else
   note "OK: no Japanese text outside allowed locations"
+fi
+
+# README.md may contain Japanese only on the README.ja.md language-switcher line.
+readme_hits=$(grep -P '[\p{Hiragana}\p{Katakana}]' README.md 2>/dev/null | grep -v 'README\.ja\.md' || true)
+if [ -n "$readme_hits" ]; then
+  note "FAIL: Japanese text in README.md beyond the language-switcher line:"; note "$readme_hits"; FAIL=1
+else
+  note "OK: README.md Japanese limited to the language switcher"
 fi
 
 if [ "$FAIL" -eq 0 ]; then

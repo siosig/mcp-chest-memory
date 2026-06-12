@@ -1,5 +1,7 @@
 # mcp-chest-memory
 
+**English** | [日本語](README.ja.md)
+
 **Local-first persistent memory for coding agents, served over MCP.**
 Your agent forgets everything when a session ends; chest gives it a durable,
 searchable "past self" — failures it must not repeat, decisions and their
@@ -227,6 +229,7 @@ lock.
 | `CHEST_API_TOKEN` | — | Shared Bearer token (backend refuses to start without it) |
 | `CHEST_PORT` | `8765` | REST backend listen port |
 | `CHEST_MAX_CONTENT_CHARS` | `8000` | Max memory content length |
+| `CHEST_SWEEP_LIMIT` | `500` | Max rows backfilled per `chest-index` embedding sweep |
 
 ## Claude Code integration
 

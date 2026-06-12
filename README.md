@@ -59,36 +59,6 @@ feel the difference for yourself — getting started solo is very easy.
 - **Three deployment profiles** — same tools, same semantics: single PC,
   LAN-shared (Docker), or WAN (nginx + TLS)
 
-## Architecture
-
-```mermaid
-flowchart LR
-    subgraph client [Any client PC]
-        CC[Claude Code] -->|stdio| MCP[chest-memory MCP server]
-    end
-
-    MCP -->|"local mode (default)"| DB[(chest.db SQLite + FTS5)]
-    MCP -->|"remote mode: REST + Bearer token"| NG[nginx TLS - WAN only]
-    NG --> API[chest-server REST backend Docker]
-    MCP -.->|"LAN: direct REST"| API
-    API --> DB2[(host-mounted chest.db)]
-
-    subgraph maintenance [Background maintenance - auto after writes]
-        IDX[decay / sweeps / embedding backfill] --> DB
-        IDX2[same, inside the backend] --> DB2
-    end
-```
-
-| Profile | Transport | Database lives | Setup |
-|---|---|---|---|
-| Single PC | stdio → in-process SQLite | `~/.chest-memory/chest.db` | `./tools/install.sh` |
-| Multi-PC (LAN) | stdio → REST (Bearer) → Docker | host bind mount (`deploy/data/`) | `docker compose up` + `install.sh --remote` |
-| Multi-PC (WAN) | stdio → nginx (TLS) → Docker | host bind mount | above + `deploy/nginx.conf.example` |
-
-The MCP tool surface is identical in every profile: the stdio server either
-executes tools in-process (local) or forwards the same JSON payload to the
-backend (remote), which runs the very same executor code.
-
 ## Quick start (single PC)
 
 Requirements: Node.js ≥ 22.
@@ -271,6 +241,37 @@ chest-index reembed   # resets them to pending and re-embeds
 ```
 
 ## How it works
+
+### Architecture
+
+```mermaid
+flowchart LR
+    subgraph client [Any client PC]
+        CC[Claude Code] -->|stdio| MCP[chest-memory MCP server]
+    end
+
+    MCP -->|"local mode (default)"| DB[(chest.db SQLite + FTS5)]
+    MCP -->|"remote mode: REST + Bearer token"| NG[nginx TLS - WAN only]
+    NG --> API[chest-server REST backend Docker]
+    MCP -.->|"LAN: direct REST"| API
+    API --> DB2[(host-mounted chest.db)]
+
+    subgraph maintenance [Background maintenance - auto after writes]
+        IDX[decay / sweeps / embedding backfill] --> DB
+        IDX2[same, inside the backend] --> DB2
+    end
+```
+
+| Profile | Transport | Database lives | Setup |
+|---|---|---|---|
+| Single PC | stdio → in-process SQLite | `~/.chest-memory/chest.db` | `./tools/install.sh` |
+| Multi-PC (LAN) | stdio → REST (Bearer) → Docker | host bind mount (`deploy/data/`) | `docker compose up` + `install.sh --remote` |
+| Multi-PC (WAN) | stdio → nginx (TLS) → Docker | host bind mount | above + `deploy/nginx.conf.example` |
+
+The MCP tool surface is identical in every profile: the stdio server either
+executes tools in-process (local) or forwards the same JSON payload to the
+backend (remote), which runs the very same executor code.
+
 
 ### Storage
 

@@ -3,7 +3,7 @@
 #   docker build -f deploy/Dockerfile -t chest-memory .
 
 # --- build stage -------------------------------------------------------------
-FROM node:22-slim AS build
+FROM node:24-slim AS build
 WORKDIR /app
 
 # OpenSSL is required by Prisma's engine on slim images.
@@ -18,7 +18,7 @@ COPY src ./src
 RUN npm run build
 
 # --- runtime stage -----------------------------------------------------------
-FROM node:22-slim
+FROM node:24-slim
 WORKDIR /app
 ENV NODE_ENV=production
 

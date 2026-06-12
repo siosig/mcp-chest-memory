@@ -26,6 +26,11 @@ mcp-chest-memory は、これらをすべて自動で解決します。
 
 Claude Code 向けに最適化（スキル + フック同梱）。MCP クライアントなら何でも動作します。
 
+この MCP は簡単に利用できるように作られています。個人利用から複数拠点での利用、
+プロジェクトチーム全体での利用までを想定してスケールできるようになっています。
+まずは個人で利用するところから始めて、その効果を実感してください。
+個人で利用するのはとても簡単です。
+
 ## 特徴
 
 - **6 層構造化記憶** — `goal` / `context` / `emotion` / `implementation` /
@@ -108,7 +113,16 @@ Claude Code を再起動して試してください:
 > 「覚えておいて: ステージング DB は毎週月曜にリセットされる」
 > 「このエラー前にも踏まなかったっけ？」
 
-アンインストール（データ削除前に確認します）:
+アンインストール — npx 導入の場合:
+
+```bash
+claude mcp remove -s user chest-memory
+npx -y -p mcp-chest-memory chest-memory-install-hooks --remove
+rm -rf ~/.claude/skills/chest-memory
+rm -rf ~/.chest-memory   # 記憶データごと消す場合のみ
+```
+
+ソース導入の場合（データ削除前に確認します）:
 
 ```bash
 ./tools/uninstall.sh            # 対話式
@@ -120,6 +134,15 @@ Claude Code を再起動して試してください:
 `~/.claude/projects/` 配下の過去セッションすべて（記憶・ファイル編集履歴・
 イベント）と、各プロジェクトの自動メモリファイル（`memory/*.md`）を
 記憶ストアに取り込み、embedding を補完します:
+
+clone なし（npx 導入）の場合:
+
+```bash
+npx -y -p mcp-chest-memory chest-memory-import --all
+npx -y -p mcp-chest-memory chest-index up --embed-cycle
+```
+
+ソース導入の場合（モデル事前取得と未処理分の一括 embedding も行います）:
 
 ```bash
 ./tools/bootstrap-import.sh             # 全件取り込み
@@ -140,9 +163,9 @@ Claude Code を再起動して試してください:
 - **`/chest-memory`** で直前の文脈を明示的に保存、
   **`/chest-memory status`** でストアの状態を確認できます
 - **「これ前にもやらなかったっけ？」** と聞くと recall を強制できます
-- フックは `install.sh` が設定済みです（Stop 時のセッション自動キャプチャ、
-  コンパクション前後のスナップショット保存/復元）。不要なら `--skip-hooks`
-  でインストールしてください
+- フックはインストーラーが自動設定します（npx なら `chest-memory-setup`、
+  ソース導入で不要なら `install.sh --skip-hooks`）: Stop 時のセッション
+  自動キャプチャ、コンパクション前後のスナップショット保存/復元
 
 ### 何もしなくても自動で走る処理
 

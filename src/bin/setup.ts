@@ -23,6 +23,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, mkdirSync, copyFileSync } from 'node:fs';
+import { createInterface } from 'node:readline';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -33,23 +34,50 @@ const dryRun = args.includes('--dry-run');
 const autoYes = args.includes('--yes') || args.includes('-y');
 const showHelp = args.includes('--help') || args.includes('-h');
 
+// Remote mode: --docker <url> <token>  (LAN Docker direct)
+//              --nginx <url> <token>    (WAN via nginx proxy)
+const dockerIdx = args.indexOf('--docker');
+const nginxIdx = args.indexOf('--nginx');
+let remoteUrl = '';
+let apiToken = '';
+let remoteMode = false;
+let remoteFlag = '';
+if (dockerIdx >= 0) {
+  remoteUrl = args[dockerIdx + 1] ?? '';
+  apiToken = args[dockerIdx + 2] ?? '';
+  remoteMode = true;
+  remoteFlag = 'docker';
+} else if (nginxIdx >= 0) {
+  remoteUrl = args[nginxIdx + 1] ?? '';
+  apiToken = args[nginxIdx + 2] ?? '';
+  remoteMode = true;
+  remoteFlag = 'nginx';
+}
+
 if (showHelp) {
   console.log(`chest-memory-setup — One-command setup for Chest Memory
 
 Usage:
-  npx chest-memory-setup          Interactive setup
-  npx chest-memory-setup --yes    Accept all defaults, no prompts
-  npx chest-memory-setup --dry-run Show what would happen
+  npx chest-memory-setup [--yes]                                  Local SQLite (single PC)
+  npx chest-memory-setup --docker <url> <token> [--yes]           LAN Docker backend
+  npx chest-memory-setup --nginx  <url> <token> [--yes]           WAN nginx+TLS backend
+  npx chest-memory-setup --dry-run                                Show what would happen
 
 What it does:
   1. Registers chest-memory MCP server with Claude Code
   2. Installs SKILL.md (teaches the agent when to recall/remember)
-  3. Configures hooks: Stop (auto-capture), PreCompact/SessionStart
-     (work-state snapshot across context compaction)
+  3. Configures hooks (local mode only): Stop (auto-capture),
+     PreCompact/SessionStart (work-state snapshot across compaction)
 
 After setup, just chat with Claude Code normally.
 Add "Use Chest" to any prompt to trigger memory recall.`);
   process.exit(0);
+}
+
+if (remoteMode && (!remoteUrl || !apiToken)) {
+  console.error(`--${remoteFlag} requires a URL and a token`);
+  console.error(`  chest-memory-setup --${remoteFlag} <url> <token>`);
+  process.exit(1);
 }
 
 // ── Constants ────────────────────────────────────────────
@@ -62,7 +90,9 @@ const __filename = fileURLToPath(import.meta.url);
 const SKILL_SRC = join(dirname(__filename), '..', 'skill', 'SKILL.md');
 
 const SERVER_NAME = 'chest-memory';
-const MCP_COMMAND = `claude mcp add -s user ${SERVER_NAME} -- npx -y mcp-chest-memory`;
+const MCP_COMMAND = remoteMode
+  ? `claude mcp add -s user ${SERVER_NAME} -e CHEST_MODE=remote -e CHEST_REMOTE_URL=${remoteUrl} -e CHEST_API_TOKEN=<token> -- npx -y mcp-chest-memory`
+  : `claude mcp add -s user ${SERVER_NAME} -- npx -y mcp-chest-memory`;
 
 const CHECK = '\x1b[32m✓\x1b[0m';
 const SKIP = '\x1b[33m○\x1b[0m';
@@ -71,10 +101,46 @@ const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
 
+async function confirm(question: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim().toLowerCase() === 'y');
+    });
+  });
+}
+
+async function main() {
+
 console.log('');
 console.log(`${BOLD}Chest Memory Setup${RESET}`);
 console.log(`${DIM}Local-first cross-LLM memory · precision recall${RESET}`);
 console.log('');
+
+// ── Confirmation (skipped with --yes or --dry-run) ───────
+
+if (!autoYes && !dryRun) {
+  console.log('The following will be performed:');
+  if (remoteMode) {
+    console.log(`  [1/3] Register MCP server '${SERVER_NAME}' (remote → ${remoteUrl})`);
+  } else {
+    console.log(`  [1/3] Register MCP server '${SERVER_NAME}' (local SQLite)`);
+  }
+  console.log(`  [2/3] Install skill → ${SKILL_TARGET}`);
+  if (remoteMode) {
+    console.log(`  [3/3] Hooks: skipped (remote mode)`);
+  } else {
+    console.log(`  [3/3] Wire hooks in ${SETTINGS_PATH}`);
+  }
+  console.log('');
+  const ok = await confirm('Proceed? (y/N) ');
+  if (!ok) {
+    console.log('Aborted.');
+    process.exit(0);
+  }
+  console.log('');
+}
 
 // ── Step 1: Register MCP server ──────────────────────────
 
@@ -111,7 +177,14 @@ if (mcpAlreadyRegistered) {
       console.log(`    https://docs.anthropic.com/en/docs/claude-code`);
       console.log(`  ${DIM}Then run this setup again.${RESET}`);
     } else {
-      const r = spawnSync('claude', ['mcp', 'add', '-s', 'user', SERVER_NAME, '--', 'npx', '-y', 'mcp-chest-memory'], {
+      const mcpAddArgs = remoteMode
+        ? ['mcp', 'add', '-s', 'user', SERVER_NAME,
+            '-e', `CHEST_MODE=remote`,
+            '-e', `CHEST_REMOTE_URL=${remoteUrl}`,
+            '-e', `CHEST_API_TOKEN=${apiToken}`,
+            '--', 'npx', '-y', 'mcp-chest-memory']
+        : ['mcp', 'add', '-s', 'user', SERVER_NAME, '--', 'npx', '-y', 'mcp-chest-memory'];
+      const r = spawnSync('claude', mcpAddArgs, {
         encoding: 'utf8',
         timeout: 15000,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -174,27 +247,31 @@ console.log('');
 
 console.log(`${BOLD}[3/3]${RESET} Configuring hooks (auto-capture + compaction snapshots)...`);
 
-// Absolute node commands against this install's dist/bin. An `npx -y` form
-// would re-resolve (and potentially re-download) a package on every hook
-// invocation — and `chest-memory-sync` is a bin name, not a package name, so
-// npx would actually resolve the wrong package.
-const hookSpecs = buildNodeHookSpecs({ distBinDir: dirname(__filename) });
-if (dryRun) {
-  for (const spec of hookSpecs) {
-    console.log(`  ${DIM}[dry-run] Would wire ${spec.event} → ${spec.command}${RESET}`);
-  }
+if (remoteMode) {
+  console.log(`  ${SKIP} Hooks skipped in remote mode (the backend owns session capture)`);
 } else {
-  try {
-    for (const result of wireHooks(SETTINGS_PATH, hookSpecs)) {
-      if (result.action === 'unchanged') {
-        console.log(`  ${SKIP} ${result.event} hook already configured`);
-      } else {
-        console.log(`  ${CHECK} ${result.event} hook ${result.action} → ${SETTINGS_PATH}`);
-      }
+  // Absolute node commands against this install's dist/bin. An `npx -y` form
+  // would re-resolve (and potentially re-download) a package on every hook
+  // invocation — and `chest-memory-sync` is a bin name, not a package name, so
+  // npx would actually resolve the wrong package.
+  const hookSpecs = buildNodeHookSpecs({ distBinDir: dirname(__filename) });
+  if (dryRun) {
+    for (const spec of hookSpecs) {
+      console.log(`  ${DIM}[dry-run] Would wire ${spec.event} → ${spec.command}${RESET}`);
     }
-  } catch (e: unknown) {
-    console.log(`  ${FAIL} Could not update ${SETTINGS_PATH}: ${e instanceof Error ? e.message : String(e)}`);
-    console.log(`  ${DIM}The file was left untouched — fix its JSON and re-run.${RESET}`);
+  } else {
+    try {
+      for (const result of wireHooks(SETTINGS_PATH, hookSpecs)) {
+        if (result.action === 'unchanged') {
+          console.log(`  ${SKIP} ${result.event} hook already configured`);
+        } else {
+          console.log(`  ${CHECK} ${result.event} hook ${result.action} → ${SETTINGS_PATH}`);
+        }
+      }
+    } catch (e: unknown) {
+      console.log(`  ${FAIL} Could not update ${SETTINGS_PATH}: ${e instanceof Error ? e.message : String(e)}`);
+      console.log(`  ${DIM}The file was left untouched — fix its JSON and re-run.${RESET}`);
+    }
   }
 }
 console.log('');
@@ -221,3 +298,7 @@ console.log(`  ${BOLD}"Remember: I prefer TypeScript over JavaScript"${RESET}`);
 console.log('');
 console.log(`Or add ${BOLD}"Use Chest"${RESET} to any prompt to trigger memory recall.`);
 console.log('');
+
+} // end main()
+
+main().catch((e) => { console.error(e); process.exit(1); });

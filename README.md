@@ -2,6 +2,12 @@
 
 **English** | [日本語](README.ja.md)
 
+- **Add this MCP server — then there is nothing left for you to do.**
+- **It automatically remembers what was worked on, why things failed, and
+  what research concluded — across all your projects.**
+- **You never have to answer the same question twice.**
+- **Your LLM never makes the same mistake twice.**
+
 **Local-first persistent memory for coding agents, served over MCP.**
 Your agent forgets everything when a session ends; chest gives it a durable,
 searchable "past self" — failures it must not repeat, decisions and their

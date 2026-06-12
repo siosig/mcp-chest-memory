@@ -14,9 +14,11 @@ services:
     image: chest-memory:latest
     container_name: chest-memory
     restart: unless-stopped
-    # Run as the unprivileged node user (uid 1000); ensure ./data is owned by
-    # uid 1000 on the host (e.g. `mkdir -p data && sudo chown 1000:1000 data`).
-    user: "node"
+    # Run as the host service user (uid 993 / gid 980 = chest-service).
+    # The data directory must be owned by that uid on the host:
+    #   sudo mkdir -p /opt/chest-service/chest-memory/data
+    #   sudo chown -R chest-service:chest-service /opt/chest-service/chest-memory
+    user: "993:980"
     ports:
       # Published on all interfaces by default. To restrict to this host, change
       # to "127.0.0.1:8765:8765" and front the backend with a reverse proxy. The
@@ -26,4 +28,4 @@ services:
       CHEST_API_TOKEN: ${CHEST_API_TOKEN:?set CHEST_API_TOKEN (e.g. openssl rand -hex 32)}
     volumes:
       # Host-persisted database + model cache: survives container re-creation.
-      - ./data:/data
+      - /opt/chest-service/chest-memory/data:/data

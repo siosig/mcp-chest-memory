@@ -27,7 +27,7 @@ import { createInterface } from 'node:readline';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { buildNodeHookSpecs, wireHooks } from '../lib/hooks-install.js';
+import { buildNodeHookSpecs, buildNodeHookSpecsRemote, wireHooks } from '../lib/hooks-install.js';
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
@@ -247,31 +247,30 @@ console.log('');
 
 console.log(`${BOLD}[3/3]${RESET} Configuring hooks (auto-capture + compaction snapshots)...`);
 
-if (remoteMode) {
-  console.log(`  ${SKIP} Hooks skipped in remote mode (the backend owns session capture)`);
+// Absolute node commands against this install's dist/bin. An `npx -y` form
+// would re-resolve (and potentially re-download) a package on every hook
+// invocation — and `chest-memory-sync` is a bin name, not a package name, so
+// npx would actually resolve the wrong package.
+const hookSpecs = remoteMode
+  ? buildNodeHookSpecsRemote({ distBinDir: dirname(__filename), remoteUrl, apiToken })
+  : buildNodeHookSpecs({ distBinDir: dirname(__filename) });
+
+if (dryRun) {
+  for (const spec of hookSpecs) {
+    console.log(`  ${DIM}[dry-run] Would wire ${spec.event} → ${spec.command}${RESET}`);
+  }
 } else {
-  // Absolute node commands against this install's dist/bin. An `npx -y` form
-  // would re-resolve (and potentially re-download) a package on every hook
-  // invocation — and `chest-memory-sync` is a bin name, not a package name, so
-  // npx would actually resolve the wrong package.
-  const hookSpecs = buildNodeHookSpecs({ distBinDir: dirname(__filename) });
-  if (dryRun) {
-    for (const spec of hookSpecs) {
-      console.log(`  ${DIM}[dry-run] Would wire ${spec.event} → ${spec.command}${RESET}`);
-    }
-  } else {
-    try {
-      for (const result of wireHooks(SETTINGS_PATH, hookSpecs)) {
-        if (result.action === 'unchanged') {
-          console.log(`  ${SKIP} ${result.event} hook already configured`);
-        } else {
-          console.log(`  ${CHECK} ${result.event} hook ${result.action} → ${SETTINGS_PATH}`);
-        }
+  try {
+    for (const result of wireHooks(SETTINGS_PATH, hookSpecs)) {
+      if (result.action === 'unchanged') {
+        console.log(`  ${SKIP} ${result.event} hook already configured`);
+      } else {
+        console.log(`  ${CHECK} ${result.event} hook ${result.action} → ${SETTINGS_PATH}`);
       }
-    } catch (e: unknown) {
-      console.log(`  ${FAIL} Could not update ${SETTINGS_PATH}: ${e instanceof Error ? e.message : String(e)}`);
-      console.log(`  ${DIM}The file was left untouched — fix its JSON and re-run.${RESET}`);
     }
+  } catch (e: unknown) {
+    console.log(`  ${FAIL} Could not update ${SETTINGS_PATH}: ${e instanceof Error ? e.message : String(e)}`);
+    console.log(`  ${DIM}The file was left untouched — fix its JSON and re-run.${RESET}`);
   }
 }
 console.log('');

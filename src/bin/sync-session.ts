@@ -102,6 +102,21 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  // Remote mode: POST the JSONL content to the remote backend for server-side import.
+  if ((process.env['CHEST_MODE'] ?? 'local') === 'remote') {
+    try {
+      const content = readFileSync(resolvedTranscript, 'utf8');
+      const { syncSessionRemote } = await import('../lib/hooks-remote.js');
+      await syncSessionRemote(content, sessionId ?? '');
+      const elapsed = Date.now() - startedAt;
+      log(`remote sync ok (session=${sessionId}, cwd=${cwd}, ${elapsed}ms)`);
+    } catch (e: unknown) {
+      const elapsed = Date.now() - startedAt;
+      log(`remote sync error (session=${sessionId}, ${elapsed}ms): ${e instanceof Error ? e.message : String(e)}`);
+    }
+    process.exit(0);
+  }
+
   const r = spawnSync(process.execPath, [importerPath, '--session-file', resolvedTranscript], {
     encoding: 'utf8',
     timeout: 30000,
@@ -119,7 +134,6 @@ async function main(): Promise<void> {
   const out = (r.stdout || '').trim().split('\n').slice(-1)[0] || '';
   log(`ok (session=${sessionId}, cwd=${cwd}, ${elapsed}ms): ${out}`);
 
-  // Usage-reporting is not present; nothing is ever transmitted remotely.
   process.exit(0);
 }
 

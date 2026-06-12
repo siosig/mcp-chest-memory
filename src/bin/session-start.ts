@@ -53,6 +53,25 @@ async function main(): Promise<void> {
     process.exit(0); // Normal skip — no log to avoid per-startup noise.
   }
 
+  // Remote mode: fetch snapshot from the remote backend.
+  if ((process.env['CHEST_MODE'] ?? 'local') === 'remote') {
+    try {
+      const { loadSnapshotRemote } = await import('../lib/hooks-remote.js');
+      const text = await loadSnapshotRemote(sessionId);
+      const elapsed = Date.now() - startedAt;
+      if (text) {
+        process.stdout.write(`<session_knowledge>\n${text}\n</session_knowledge>\n`);
+        log(`remote snapshot injected (session=${sessionId}, source=${source}, ${Buffer.byteLength(text, 'utf8')}B, ${elapsed}ms)`);
+      } else {
+        log(`remote snapshot not found (session=${sessionId}, source=${source}, ${elapsed}ms)`);
+      }
+    } catch (e: unknown) {
+      const elapsed = Date.now() - startedAt;
+      log(`remote session-start error (session=${sessionId}, ${elapsed}ms): ${e instanceof Error ? e.message : String(e)}`);
+    }
+    process.exit(0);
+  }
+
   try {
     const { loadSnapshot } = await import('../lib/snapshot/store.js');
     const { shutdownPrisma } = await import('../lib/db/prisma-client.js');

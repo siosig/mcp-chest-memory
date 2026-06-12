@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Lockfile policy: this package is developed inside a pnpm workspace whose
+# lockfile lives at the workspace root. No per-package lockfiles are tracked.
+package-lock.json
+pnpm-lock.yaml
+
+# Build output (shipped via package.json "files")
+dist/
+tsconfig.tsbuildinfo
+
+# Test artifacts
+*.tgz
+coverage/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local data (SQLite database and downloaded embedding models)
+.chest-memory/
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Env / secrets
+.env
+.env.*
+*.pem
+*.key
+credentials*
+.npmrc
+
+# Logs
+*.log
+
+# Local tooling state (never published)
+CLAUDE.md
+/.claude/
+/.specify/
+/specs/

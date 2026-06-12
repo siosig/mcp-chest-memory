@@ -1,0 +1,323 @@
+// chest-memory schema (SQLite)
+//
+// Invariants:
+// 1. All timestamps are stored as BIGINT unix epoch seconds (unixepoch()).
+// 2. The memories_fts FTS5 virtual table and its sync triggers are managed
+//    via raw SQL inside prisma/migrations (FTS5 is outside Prisma's model DSL).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// =========================================================================
+// Layer 1: Facts — entities (people / companies / projects / concepts / files)
+// =========================================================================
+model Entity {
+  id              BigInt   @id @default(autoincrement())
+  kind            String
+  name            String
+  normalizedName  String?  @map("normalized_name")
+  canonicalKey    String?  @unique @map("canonical_key")
+  attributes      String?
+  momentumScore   Float    @default(0.0) @map("momentum_score")
+  momentumAt      BigInt?  @map("momentum_at")
+  createdAt       BigInt   @default(dbgenerated("(unixepoch())")) @map("created_at")
+  updatedAt       BigInt   @default(dbgenerated("(unixepoch())")) @map("updated_at")
+
+  memories        Memory[]
+  edgesFrom       Edge[]   @relation("FromEntity")
+  edgesTo         Edge[]   @relation("ToEntity")
+  events          Event[]
+  consolidations  Consolidation[]
+
+  @@index([kind], map: "idx_entities_kind")
+  @@index([canonicalKey], map: "idx_entities_key")
+  @@index([kind, normalizedName], map: "idx_entities_normalized")
+  // Composite indexes optimizing listEntities ORDER BY paths
+  @@index([kind, momentumScore(sort: Desc)], map: "idx_entities_list_kind")
+  @@index([momentumScore(sort: Desc), updatedAt(sort: Desc)], map: "idx_entities_list_all")
+  @@map("entities")
+}
+
+// =========================================================================
+// Layer 3: Meanings — 6-layer structured memory per entity
+// Layers: goal | context | emotion | implementation | realize | learning
+// (realize = failures / pitfalls; protected from auto-forgetting)
+// =========================================================================
+model Memory {
+  id                       BigInt   @id @default(autoincrement())
+  entityId                 BigInt   @map("entity_id")
+  layer                    String
+  content                  String
+  importance               Float    @default(0.5)
+  protected                Int      @default(0)
+  source                   String?
+  createdAt                BigInt   @default(dbgenerated("(unixepoch())")) @map("created_at")
+  lastAccessedAt           BigInt   @default(dbgenerated("(unixepoch())")) @map("last_accessed_at")
+  accessCount              Int      @default(0) @map("access_count")
+
+  archivedAt               BigInt?  @map("archived_at")
+  supersededById           BigInt?  @map("superseded_by_id")
+  supersessionConfidence   Float?   @map("supersession_confidence")
+  expiresAt                BigInt?  @map("expires_at")
+
+  embedding                String?
+  embeddingModel           String?  @map("embedding_model")
+
+  // Async embedding state machine (shared by all providers).
+  // The local provider transitions pending -> done synchronously;
+  // the gemini provider goes through the batch lifecycle.
+  embeddingStatus              String   @default("pending") @map("embedding_status")
+  embeddingBatchId             String?  @map("embedding_batch_id")
+  embeddingStateChangedAt      BigInt   @default(dbgenerated("(unixepoch())")) @map("embedding_state_changed_at")
+  embeddingErrorKind           String?  @map("embedding_error_kind")
+  embeddingErrorReason         String?  @map("embedding_error_reason")
+  embeddingTransientRetryCount Int      @default(0) @map("embedding_transient_retry_count")
+  embeddingStaleCount          Int      @default(0) @map("embedding_stale_count")
+  embeddingDim                 Int?     @map("embedding_dim")
+
+  activationScore          Float?   @map("activation_score")
+  ttlPenalty               Float?   @map("ttl_penalty")
+  supersessionPenalty      Float?   @map("supersession_penalty")
+  activationComputedAt     BigInt?  @map("activation_computed_at")
+
+  entity                   Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  supersededBy             Memory?  @relation("SupersessionRelation", fields: [supersededById], references: [id], onDelete: SetNull)
+  supersedes               Memory[] @relation("SupersessionRelation")
+  accessLogs               MemoryAccessLog[]
+  sessionFileEdits         SessionFileEdit[]
+  consolidations           Consolidation[]
+  embeddingBatch           EmbeddingBatch? @relation(fields: [embeddingBatchId], references: [id], onDelete: SetNull)
+
+  @@index([entityId], map: "idx_memories_entity")
+  @@index([layer], map: "idx_memories_layer")
+  @@index([importance(sort: Desc)], map: "idx_memories_importance")
+  @@index([protected], map: "idx_memories_protected")
+  @@index([archivedAt], map: "idx_memories_archived")
+  @@index([supersededById], map: "idx_memories_superseded")
+  @@index([expiresAt], map: "idx_memories_expires")
+  @@index([activationComputedAt], map: "idx_memories_actstale")
+  // Composite indexes for hot query patterns
+  @@index([entityId, layer, archivedAt, createdAt(sort: Desc)], map: "idx_memories_supersession_cand")
+  @@index([protected, archivedAt, layer, createdAt], map: "idx_memories_consolidate_scan")
+  @@index([archivedAt, activationComputedAt], map: "idx_memories_activation_stale")
+  @@index([entityId, archivedAt, supersededById, layer], map: "idx_memories_recall_filter")
+  // Embedding state lookups
+  @@index([embeddingStatus], map: "idx_memories_emb_status")
+  @@index([embeddingBatchId], map: "idx_memories_emb_batch")
+  @@index([embeddingStatus, embeddingStateChangedAt], map: "idx_memories_emb_stale")
+  @@map("memories")
+}
+
+// =========================================================================
+// Batch embedding: one row per remote batch request (gemini provider only)
+// =========================================================================
+model EmbeddingBatch {
+  id                String   @id
+  status            String   @default("submitting")
+  recordCount       Int      @map("record_count")
+  totalInputBytes   Int?     @map("total_input_bytes")
+  externalRequestId String?  @map("external_request_id")
+  errorSummary      String?  @map("error_summary")
+  cycleRunId        String?  @map("cycle_run_id")
+  submittedAt       BigInt   @default(dbgenerated("(unixepoch())")) @map("submitted_at")
+  completedAt       BigInt?  @map("completed_at")
+  createdAt         BigInt   @default(dbgenerated("(unixepoch())")) @map("created_at")
+  updatedAt         BigInt   @default(dbgenerated("(unixepoch())")) @map("updated_at")
+
+  memories Memory[]
+  cycleRun BatchCycleRun? @relation(fields: [cycleRunId], references: [id], onDelete: SetNull)
+
+  @@index([status], map: "idx_emb_batch_status")
+  @@index([cycleRunId], map: "idx_emb_batch_cycle")
+  @@index([status, submittedAt], map: "idx_emb_batch_status_subm")
+  @@map("embedding_batches")
+}
+
+// =========================================================================
+// Summary of one periodic embedding cycle run
+// =========================================================================
+model BatchCycleRun {
+  id                    String  @id
+  startedAt             BigInt  @default(dbgenerated("(unixepoch())")) @map("started_at")
+  finishedAt            BigInt? @map("finished_at")
+  pendingCountBefore    Int     @default(0) @map("pending_count_before")
+  inProgressCountBefore Int     @default(0) @map("in_progress_count_before")
+  submittedBatches      Int     @default(0) @map("submitted_batches")
+  fetchedBatches        Int     @default(0) @map("fetched_batches")
+  doneAdded             Int     @default(0) @map("done_added")
+  errorAdded            Int     @default(0) @map("error_added")
+  errors                String?
+
+  batches EmbeddingBatch[]
+
+  @@index([startedAt(sort: Desc)], map: "idx_cycle_started")
+  @@map("batch_cycle_runs")
+}
+
+// =========================================================================
+// ACT-R style access log feeding the heat index
+// =========================================================================
+model MemoryAccessLog {
+  id          BigInt   @id @default(autoincrement())
+  memoryId    BigInt   @map("memory_id")
+  accessedAt  BigInt   @default(dbgenerated("(unixepoch())")) @map("accessed_at")
+
+  memory      Memory   @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+
+  @@index([memoryId, accessedAt(sort: Desc)], map: "idx_mal_memory")
+  @@map("memory_access_log")
+}
+
+// =========================================================================
+// Layer 2: Associations — graph edges between entities
+// =========================================================================
+model Edge {
+  id         BigInt   @id @default(autoincrement())
+  fromId     BigInt   @map("from_id")
+  toId       BigInt   @map("to_id")
+  relation   String
+  weight     Float    @default(1.0)
+  attributes String?
+  createdAt  BigInt   @default(dbgenerated("(unixepoch())")) @map("created_at")
+
+  fromEntity Entity   @relation("FromEntity", fields: [fromId], references: [id], onDelete: Cascade)
+  toEntity   Entity   @relation("ToEntity", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@unique([fromId, toId, relation])
+  @@index([fromId], map: "idx_edges_from")
+  @@index([toId], map: "idx_edges_to")
+  @@index([relation], map: "idx_edges_rel")
+  @@map("edges")
+}
+
+// =========================================================================
+// Layer 4: Events — time-series log
+// =========================================================================
+model Event {
+  id          BigInt   @id @default(autoincrement())
+  entityId    BigInt?  @map("entity_id")
+  kind        String
+  payload     String?
+  occurredAt  BigInt   @default(dbgenerated("(unixepoch())")) @map("occurred_at")
+
+  entity      Entity?  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([entityId], map: "idx_events_entity")
+  @@index([occurredAt(sort: Desc)], map: "idx_events_occurred")
+  @@index([kind], map: "idx_events_kind")
+  @@map("events")
+}
+
+// =========================================================================
+// Layer 5: File snapshots — diff cache backing chest_read_smart
+// =========================================================================
+model FileSnapshot {
+  path         String   @id
+  contentHash  String   @map("content_hash")
+  mtime        BigInt
+  sizeBytes    BigInt?  @map("size_bytes")
+  chunks       String?
+  lastReadAt   BigInt   @default(dbgenerated("(unixepoch())")) @map("last_read_at")
+  readCount    Int      @default(1) @map("read_count")
+
+  facts        FileFact[]
+
+  @@index([mtime], map: "idx_file_mtime")
+  @@map("file_snapshots")
+}
+
+model FileFact {
+  id          BigInt   @id @default(autoincrement())
+  filePath    String   @map("file_path")
+  chunkHash   String?  @map("chunk_hash")
+  fact        String
+  layer       String?
+  extractedAt BigInt   @default(dbgenerated("(unixepoch())")) @map("extracted_at")
+
+  fileSnapshot FileSnapshot @relation(fields: [filePath], references: [path], onDelete: Cascade)
+
+  @@index([filePath], map: "idx_file_facts_path")
+  @@map("file_facts")
+}
+
+// =========================================================================
+// Sessions
+// =========================================================================
+model Session {
+  id          String   @id
+  agentKind   String?  @map("agent_kind")
+  startedAt   BigInt   @default(dbgenerated("(unixepoch())")) @map("started_at")
+  lastSeenAt  BigInt   @default(dbgenerated("(unixepoch())")) @map("last_seen_at")
+
+  @@map("sessions")
+}
+
+// =========================================================================
+// Session <-> file edits linkage (drives chest_recall_file)
+// =========================================================================
+model SessionFileEdit {
+  id              BigInt   @id @default(autoincrement())
+  sessionId       String   @map("session_id")
+  memoryId        BigInt?  @map("memory_id")
+  filePath        String   @map("file_path")
+  operation       String
+  turnUuid        String?  @map("turn_uuid")
+  contextSnippet  String?  @map("context_snippet")
+  occurredAt      BigInt   @map("occurred_at")
+
+  memory          Memory?  @relation(fields: [memoryId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId], map: "idx_sfe_session")
+  @@index([filePath], map: "idx_sfe_file")
+  @@index([memoryId], map: "idx_sfe_memory")
+  @@index([occurredAt(sort: Desc)], map: "idx_sfe_when")
+  @@map("session_file_edits")
+}
+
+// =========================================================================
+// Consolidations audit trail
+// =========================================================================
+model Consolidation {
+  id              BigInt   @id @default(autoincrement())
+  learningId      BigInt?  @map("learning_id")
+  replacedIds     String   @map("replaced_ids")
+  replacedCount   Int      @map("replaced_count")
+  entityId        BigInt?  @map("entity_id")
+  originalLayer   String   @map("original_layer")
+  createdAt       BigInt   @default(dbgenerated("(unixepoch())")) @map("created_at")
+
+  learning        Memory?  @relation(fields: [learningId], references: [id], onDelete: SetNull)
+  entity          Entity?  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([entityId], map: "idx_consolidations_entity")
+  @@map("consolidations")
+}
+
+// =========================================================================
+// Meta — auxiliary key/value store (_prisma_migrations owns schema versioning)
+// =========================================================================
+model Meta {
+  key   String @id
+  value String
+
+  @@map("meta")
+}
+
+// =========================================================================
+// Work-state snapshot surviving context compaction (one row per session)
+// =========================================================================
+model SessionSnapshot {
+  id           BigInt @id @default(autoincrement())
+  sessionId    String @unique(map: "uq_session_snapshots_session") @map("session_id")
+  snapshotText String @map("snapshot_text")
+  createdAt    BigInt @default(dbgenerated("(unixepoch())")) @map("created_at")
+
+  @@index([createdAt], map: "idx_session_snapshots_created")
+  @@map("session_snapshots")
+}

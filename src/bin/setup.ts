@@ -95,8 +95,8 @@ const SKILL_SRC = join(dirname(__filename), '..', 'skill', 'SKILL.md');
 
 const SERVER_NAME = 'chest-memory';
 const MCP_COMMAND = remoteMode
-  ? `claude mcp add -s user ${SERVER_NAME} -e CHEST_MODE=remote -e CHEST_REMOTE_URL=${remoteUrl} -e CHEST_API_TOKEN=<token> -- npx -y mcp-chest-memory`
-  : `claude mcp add -s user ${SERVER_NAME} -- npx -y mcp-chest-memory`;
+  ? `claude mcp add -s user ${SERVER_NAME} -e CHEST_MODE=remote -e CHEST_REMOTE_URL=${remoteUrl} -e CHEST_API_TOKEN=<token> -- npx -y mcp-chest-memory@latest`
+  : `claude mcp add -s user ${SERVER_NAME} -- npx -y mcp-chest-memory@latest`;
 
 const CHECK = '\x1b[32m✓\x1b[0m';
 const SKIP = '\x1b[33m○\x1b[0m';
@@ -186,8 +186,8 @@ if (mcpAlreadyRegistered) {
             '-e', `CHEST_MODE=remote`,
             '-e', `CHEST_REMOTE_URL=${remoteUrl}`,
             '-e', `CHEST_API_TOKEN=${apiToken}`,
-            '--', 'npx', '-y', 'mcp-chest-memory']
-        : ['mcp', 'add', '-s', 'user', SERVER_NAME, '--', 'npx', '-y', 'mcp-chest-memory'];
+            '--', 'npx', '-y', 'mcp-chest-memory@latest']
+        : ['mcp', 'add', '-s', 'user', SERVER_NAME, '--', 'npx', '-y', 'mcp-chest-memory@latest'];
       const r = spawnSync('claude', mcpAddArgs, {
         encoding: 'utf8',
         timeout: 15000,
@@ -251,13 +251,13 @@ console.log('');
 
 console.log(`${BOLD}[3/3]${RESET} Configuring hooks (auto-capture + compaction snapshots)...`);
 
-// Absolute node commands against this install's dist/bin. An `npx -y` form
-// would re-resolve (and potentially re-download) a package on every hook
-// invocation — and `chest-memory-sync` is a bin name, not a package name, so
-// npx would actually resolve the wrong package.
+// `npx -y -p mcp-chest-memory@latest <bin>` commands so the hooks always run
+// the published package and follow npm releases without a setup re-run. The
+// `-p` flag pins the package (the bins are bin names, not package names, so
+// npx would otherwise resolve the wrong package).
 const hookSpecs = remoteMode
-  ? buildNodeHookSpecsRemote({ distBinDir: dirname(__filename), remoteUrl, apiToken })
-  : buildNodeHookSpecs({ distBinDir: dirname(__filename) });
+  ? buildNodeHookSpecsRemote({ remoteUrl, apiToken })
+  : buildNodeHookSpecs();
 
 if (dryRun) {
   for (const spec of hookSpecs) {

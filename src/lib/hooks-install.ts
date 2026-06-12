@@ -5,15 +5,16 @@
 //   PreCompact   → chest-memory-precompact     (save a work-state snapshot)
 //   SessionStart → chest-memory-session-start  (restore the snapshot)
 //
-// Shared by chest-memory-install-hooks and chest-memory-setup; both wire absolute
-// `node <dist/bin/script>.js` commands. All operations are idempotent: an
-// entry is matched by its marker (the hook script name), added when missing,
-// rewritten when the command changed (e.g. a new --data-dir, or a legacy
-// `npx -y chest-memory-*` entry from an older setup), and left alone when
-// identical.
+// Shared by chest-memory-install-hooks and chest-memory-setup; both wire
+// `npx -y -p mcp-chest-memory@latest <bin>` commands so the hooks always run
+// the published package and track npm releases without a reinstall. All
+// operations are idempotent: an entry is matched by its marker (the hook
+// script or bin name), added when missing, rewritten when the command changed
+// (e.g. a new --data-dir, or a legacy absolute-`node`/`npx -y chest-memory-*`
+// entry from an older setup), and left alone when identical.
 
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { writeFileAtomic } from './fs-atomic.js';
 
 export type HookEvent = 'Stop' | 'PreCompact' | 'SessionStart';
@@ -59,12 +60,24 @@ function markersFor(event: HookEvent): string[] {
   return [script, npxBin];
 }
 
-/** Hook specs for a local install: absolute node commands against dist/. */
-export function buildNodeHookSpecs(opts: {
-  distBinDir: string;
-  dataDir?: string;
-  dbPath?: string;
-}): HookSpec[] {
+// Hooks launch through npx so they always run the published package. `-p
+// mcp-chest-memory@latest` pins the package — the bin names are bins, not
+// packages, so `-p` is required for npx to resolve the right one — while
+// `@latest` lets hooks follow npm releases without a setup re-run.
+const HOOK_PACKAGE_SPEC = 'mcp-chest-memory@latest';
+
+function hookCommand(event: HookEvent, env: string): string {
+  const prefix = env ? `${env} ` : '';
+  return `${prefix}npx -y -p ${HOOK_PACKAGE_SPEC} ${HOOK_BINS[event].npxBin}`;
+}
+
+/** Hook specs for a local install: npx commands against the published package. */
+export function buildNodeHookSpecs(
+  opts: {
+    dataDir?: string;
+    dbPath?: string;
+  } = {},
+): HookSpec[] {
   // Hooks run with Claude Code's environment, not the installer's, so the
   // chosen data location must be embedded into the command itself.
   const env = [
@@ -73,10 +86,9 @@ export function buildNodeHookSpecs(opts: {
   ]
     .filter(Boolean)
     .join(' ');
-  const prefix = env ? `${env} ` : '';
   return HOOK_EVENTS.map((event) => ({
     event,
-    command: `${prefix}node ${shellQuote(join(opts.distBinDir, HOOK_BINS[event].script))}`,
+    command: hookCommand(event, env),
     markers: markersFor(event),
   }));
 }
@@ -87,7 +99,6 @@ export function buildNodeHookSpecs(opts: {
  * forward session data to the remote backend instead of a local DB.
  */
 export function buildNodeHookSpecsRemote(opts: {
-  distBinDir: string;
   remoteUrl: string;
   apiToken: string;
   dataDir?: string;
@@ -102,7 +113,7 @@ export function buildNodeHookSpecsRemote(opts: {
     .join(' ');
   return HOOK_EVENTS.map((event) => ({
     event,
-    command: `${env} node ${shellQuote(join(opts.distBinDir, HOOK_BINS[event].script))}`,
+    command: hookCommand(event, env),
     markers: markersFor(event),
   }));
 }

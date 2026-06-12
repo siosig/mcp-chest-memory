@@ -81,7 +81,7 @@ use.
 #### Manual registration
 
 ```bash
-claude mcp add -s user chest-memory -- npx -y mcp-chest-memory
+claude mcp add -s user chest-memory -- npx -y mcp-chest-memory@latest
 ```
 
 Then wire hooks and install the skill separately:
@@ -138,7 +138,7 @@ claude mcp add -s user chest-memory \
   -e CHEST_MODE=remote \
   -e CHEST_REMOTE_URL=http://<host-ip>:8765 \
   -e CHEST_API_TOKEN=<token> \
-  -- npx -y mcp-chest-memory
+  -- npx -y mcp-chest-memory@latest
 ```
 
 ### Multi-PC (WAN): Docker + nginx TLS
@@ -171,7 +171,7 @@ claude mcp add -s user chest-memory \
   -e CHEST_MODE=remote \
   -e CHEST_REMOTE_URL=https://chest.example.com/chest-memory \
   -e CHEST_API_TOKEN=<token> \
-  -- npx -y mcp-chest-memory
+  -- npx -y mcp-chest-memory@latest
 ```
 
 Defense in depth: TLS terminates at nginx, while the backend still verifies

@@ -34,7 +34,7 @@ Options:
   --help, -h     This message
 
 After installation, ensure the MCP server is registered in Claude Code:
-  claude mcp add -s user chest-memory -- npx -y mcp-chest-memory
+  claude mcp add -s user chest-memory -- npx -y mcp-chest-memory@latest
 
 The skill references tools as chest_remember / chest_recall etc.; they are
 exposed by the chest-memory MCP server regardless of the registration name.`);
@@ -88,7 +88,7 @@ console.log(`[ok] Skill installed: ${targetFile}`);
 console.log('');
 console.log('Next steps:');
 console.log('  1. Ensure the chest-memory MCP server is registered:');
-console.log('       claude mcp add -s user chest-memory -- npx -y mcp-chest-memory');
+console.log('       claude mcp add -s user chest-memory -- npx -y mcp-chest-memory@latest');
 console.log('');
 console.log('  2. Restart Claude Code (the skill auto-loads on next turn).');
 console.log('');

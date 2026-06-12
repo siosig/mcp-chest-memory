@@ -289,8 +289,11 @@ async function main(): Promise<number> {
       return 3;
     }
 
-    if (args.command === "status") return runStatus();
-    if (args.command === "reembed") return runReembed(args.quiet);
+    // `return await` matters here: without it, the finally block (which
+    // disconnects Prisma) would run while these async commands are still
+    // querying, killing the engine mid-flight.
+    if (args.command === "status") return await runStatus();
+    if (args.command === "reembed") return await runReembed(args.quiet);
 
     const summary: string[] = [];
     for (const phase of phases) {

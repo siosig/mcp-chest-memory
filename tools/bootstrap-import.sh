@@ -4,7 +4,8 @@
 #
 # What it does:
 #   1. builds dist/ if missing and ensures the SQLite database is initialized
-#   2. imports every past session (memories, file-edit history, events)
+#   2. imports every past session (memories, file-edit history, events) and
+#      each project's curated auto-memory files (memory/*.md)
 #   3. backfills embeddings for the imported memories with the local model
 #
 # Safe to re-run: imports are idempotent per session (existing rows for a

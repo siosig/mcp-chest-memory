@@ -41,15 +41,26 @@ function getExtractor(): Promise<FeatureExtractor | null> {
   return extractorPromise;
 }
 
+// Hard cap on texts per ONNX inference call. Transformer attention buffers
+// scale with batch × seq², so an unbounded batch can exhaust process memory:
+// the bootstrap backfill once passed ~5k texts in a single call and ground the
+// machine into swap until the process was killed.
+const MAX_INFERENCE_BATCH = 16;
+
 async function embed(texts: string[]): Promise<number[][] | null> {
   const extractor = await getExtractor();
   if (!extractor) return null;
   try {
-    // pooling=mean + normalize=true yields L2-normalized sentence vectors.
-    const output = await extractor(texts, { pooling: "mean", normalize: true });
-    const vectors = output.tolist();
-    if (!Array.isArray(vectors) || vectors.length !== texts.length) return null;
-    return vectors;
+    const all: number[][] = [];
+    for (let i = 0; i < texts.length; i += MAX_INFERENCE_BATCH) {
+      const chunk = texts.slice(i, i + MAX_INFERENCE_BATCH);
+      // pooling=mean + normalize=true yields L2-normalized sentence vectors.
+      const output = await extractor(chunk, { pooling: "mean", normalize: true });
+      const vectors = output.tolist();
+      if (!Array.isArray(vectors) || vectors.length !== chunk.length) return null;
+      all.push(...vectors);
+    }
+    return all;
   } catch (e) {
     logger.warn(
       { err: e instanceof Error ? e.message : String(e) },

@@ -218,7 +218,7 @@ own. Everything below is optional:
 - **On every session end** (hooks, wired by `chest-memory-setup`): the session is
   captured on Stop, and work-state snapshots survive context compaction
 - **In the background after saves** (throttled, at most once per
-  `CHEST_MAINTENANCE_INTERVAL_SEC`, default 10 min): activation decay
+  `CHEST_MAINTENANCE_INTERVAL_SEC`, default 600 s / 10 min): activation decay
   recompute, TTL expiry and archive sweep, supersession detection,
   consolidation of cold memories, and embedding backfill for any pending
   rows. No scheduler setup is required; `chest-index up` remains available
@@ -391,7 +391,7 @@ Maintenance is self-driving: after a save, the server runs (in the
 background, without delaying the response) activation recompute →
 decay/archive sweep → supersession sweep → embedding backfill of pending
 rows. Passes are throttled to once per `CHEST_MAINTENANCE_INTERVAL_SEC`
-(default 600 s) and guarded by a file lock, so they never overlap a manual
+(default 600 s / 10 min) and guarded by a file lock, so they never overlap a manual
 `chest-index up` run. Set `CHEST_AUTO_MAINTENANCE=0` to disable the
 automatic passes and drive everything via `chest-index` yourself.
 

@@ -199,9 +199,9 @@ own. Everything below is optional:
 - Invoke **`/chest-memory`** to save the recent context explicitly,
   or **`/chest-memory status`** to check store health
 - Ask **"did we hit this before?"** to force a recall
-- Hooks are wired automatically by the installer (`chest-memory-setup` for
-  npx, `install.sh --skip-hooks` to opt out for source installs): session
-  auto-capture on Stop, snapshot save/restore around compaction
+- Hooks are wired automatically by `chest-memory-setup --yes` (pass
+  `--skip-hooks` to opt out): session auto-capture on Stop, snapshot
+  save/restore around compaction
 
 ### What runs automatically even if you do nothing
 
@@ -215,7 +215,7 @@ own. Everything below is optional:
 - **During a session** (skill-driven): recall at task start and before
   editing files with history; saves after errors are resolved or decisions
   are made
-- **On every session end** (hooks, wired by `install.sh`): the session is
+- **On every session end** (hooks, wired by `chest-memory-setup`): the session is
   captured on Stop, and work-state snapshots survive context compaction
 - **In the background after saves** (throttled, at most once per
   `CHEST_MAINTENANCE_INTERVAL_SEC`, default 10 min): activation decay
@@ -261,8 +261,8 @@ flowchart LR
 
 | Profile | Transport | Database lives | Setup |
 |---|---|---|---|
-| Single PC | stdio → in-process SQLite | `~/.chest-memory/chest.db` | `./tools/install.sh` |
-| Multi-PC (LAN) | stdio → REST (Bearer) → Docker | host bind mount (`deploy/data/`) | `docker compose up` + `install.sh --remote` |
+| Single PC | stdio → in-process SQLite | `~/.chest-memory/chest.db` | `chest-memory-setup --yes` |
+| Multi-PC (LAN) | stdio → REST (Bearer) → Docker | host bind mount (`deploy/data/`) | `docker compose up` + `chest-memory-setup --docker` |
 | Multi-PC (WAN) | stdio → nginx (TLS) → Docker | host bind mount | above + `deploy/nginx.conf.example` |
 
 The MCP tool surface is identical in every profile: the stdio server either
@@ -412,14 +412,14 @@ automatic passes and drive everything via `chest-index` yourself.
 
 ## Claude Code integration
 
-- **Skill**: `/chest-memory` (installed by `install.sh`) auto-classifies the
-  recent conversation into `realize` vs `learning` and saves it with the
+- **Skill**: `/chest-memory` (installed by `chest-memory-setup`) auto-classifies
+  the recent conversation into `realize` vs `learning` and saves it with the
   rationale shown; `/chest-memory status` reports store health
-- **Hooks** (wired by `install.sh`, or `chest-memory-setup --yes` for npm
-  installs): `chest-memory-precompact` saves a work-state snapshot before
-  context compaction; `chest-memory-session-start` restores it;
-  `chest-memory-sync` (Stop hook) auto-captures sessions. Re-wire any time
-  with `node dist/bin/install-hooks.js`; remove with `--remove`
+- **Hooks** (wired by `chest-memory-setup --yes`): `chest-memory-precompact`
+  saves a work-state snapshot before context compaction;
+  `chest-memory-session-start` restores it; `chest-memory-sync` (Stop hook)
+  auto-captures sessions. Re-wire any time with
+  `npx -y -p mcp-chest-memory chest-memory-install-hooks`; remove with `--remove`
 
 ## Development
 
@@ -428,7 +428,6 @@ pnpm install
 pnpm typecheck
 pnpm test          # node:test against a throwaway SQLite db
 pnpm build
-./tools/check-rebrand.sh   # release gate: naming/history/language checks
 ```
 
 ### From source (for development or self-hosted LAN/WAN backend)
@@ -436,29 +435,11 @@ pnpm build
 ```bash
 git clone https://github.com/siosig/mcp-chest-memory.git
 cd mcp-chest-memory
-./tools/install.sh
-```
-
-The installer is idempotent: build, `~/.chest-memory/` creation, SQLite
-schema init, embedding model prefetch, MCP registration, skill install, hooks.
-For remote mode: `./tools/install.sh --remote <url> --token <token>`.
-
-## Embeddings
-
-Embeddings are computed locally by `Xenova/multilingual-e5-small`
-(quantized ONNX, 384 dimensions) via transformers.js — no API key, and fully
-offline after the one-time model download (`tools/install.sh` prefetches it).
-
-Saving never depends on embedding availability: if the model is unavailable,
-the memory is stored with `embedding_status=pending` and backfilled later by
-`chest-index`. Vectors are stamped with the model and dimension that produced
-them; if a future release changes the bundled model, mismatched vectors are
-excluded from vector recall (full-text recall is unaffected) until you
-re-index:
-
-```bash
-chest-index status    # shows how many vectors don't match the current model
-chest-index reembed   # resets them to pending and re-embeds
+pnpm install
+pnpm build
+npx -y -p mcp-chest-memory chest-memory-setup --yes   # local mode
+# or for remote:
+npx -y -p mcp-chest-memory chest-memory-setup --docker <url> <token> --yes
 ```
 
 ## License

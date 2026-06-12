@@ -5,7 +5,7 @@
 //   PreCompact   → chest-memory-precompact     (save a work-state snapshot)
 //   SessionStart → chest-memory-session-start  (restore the snapshot)
 //
-// Shared by tools/install.sh and chest-memory-setup; both wire absolute
+// Shared by chest-memory-install-hooks and chest-memory-setup; both wire absolute
 // `node <dist/bin/script>.js` commands. All operations are idempotent: an
 // entry is matched by its marker (the hook script name), added when missing,
 // rewritten when the command changed (e.g. a new --data-dir, or a legacy

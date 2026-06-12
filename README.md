@@ -148,7 +148,7 @@ Same Docker backend as LAN, published through nginx with TLS.
 #### Start the backend
 
 Same as LAN. If nginx runs on the same host, bind the port to localhost:
-change the port mapping in `docker-compose.yml` to `127.0.0.1:8765:8765`.
+change the port mapping in `compose.yaml` to `127.0.0.1:8765:8765`.
 
 #### Configure nginx
 
@@ -199,9 +199,8 @@ own. Everything below is optional:
 - Invoke **`/chest-memory`** to save the recent context explicitly,
   or **`/chest-memory status`** to check store health
 - Ask **"did we hit this before?"** to force a recall
-- Hooks are wired automatically by `chest-memory-setup --yes` (pass
-  `--skip-hooks` to opt out): session auto-capture on Stop, snapshot
-  save/restore around compaction
+- Hooks are wired automatically by `chest-memory-setup --yes`: session
+  auto-capture on Stop, snapshot save/restore around compaction
 
 ### What runs automatically even if you do nothing
 
@@ -514,7 +513,7 @@ rewrite memories.
 | Stored-memory prompt injection | Recall responses carry a notice that memory `content` is untrusted **data, not instructions**; the consolidation prompt wraps each memory in `<memory_data>` tags with a treat-as-data preamble. | `chest_recall`, `src/mcp/sampling.ts` |
 | Settings corruption / secret leakage | `~/.claude/settings.json` is written atomically (temp file + rename) and owner-only (`0600`); hook logs are `0600`; the Stop-hook importer only accepts transcripts under `~/.claude/projects`. | `src/lib/fs-atomic.ts`, `src/lib/hooks-install.ts`, `src/bin/sync-session.ts` |
 | Container/host compromise | The Docker image runs as the non-root `node` user over the bind mount; the maintenance lock lives in the user-owned data dir (not world-writable `/tmp`). | `deploy/Dockerfile`, `src/cli/chest-index-flock.ts` |
-| Weak auth / network exposure | The backend requires a Bearer token of at least 32 characters, compares it in constant time, binds the host configured by `CHEST_BIND_HOST`, and limits request bodies to 1 MB. The nginx example sends HSTS and a restrictive CSP. | `src/http/`, `deploy/nginx.conf.example` |
+| Weak auth / network exposure | The backend requires a Bearer token of at least 32 characters, compares it in constant time, binds the host configured by `CHEST_BIND_HOST`, and limits request bodies to 1 MB (50 MB for the session-ingestion endpoint). The nginx example sends HSTS and a restrictive CSP. | `src/http/`, `deploy/nginx.conf.example` |
 
 ### Residual risks (by design)
 

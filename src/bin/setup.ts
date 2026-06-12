@@ -27,7 +27,11 @@ import { createInterface } from 'node:readline';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { buildNodeHookSpecs, buildNodeHookSpecsRemote, wireHooks } from '../lib/hooks-install.js';
+
+const _require = createRequire(import.meta.url);
+const PKG_VERSION: string = (_require('../package.json') as { version: string }).version;
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
@@ -279,7 +283,7 @@ console.log('');
 
 console.log(`${BOLD}Setup complete!${RESET}`);
 console.log('');
-console.log(`Chest Memory v1.0.0 — ${BOLD}breaking change notice${RESET}:`);
+console.log(`Chest Memory v${PKG_VERSION} is ready!`);
 console.log(`  ${DIM}MCP tools are now namespaced with the chest_ prefix:${RESET}`);
 console.log(`  ${DIM}chest_remember / chest_recall / chest_forget / chest_consolidate${RESET}`);
 console.log(`  ${DIM}chest_update_memory / chest_list_entities / chest_recall_file / chest_read_smart${RESET}`);

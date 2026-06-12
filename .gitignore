@@ -31,6 +31,9 @@ data/
 # Env / secrets
 .env
 .env.*
+
+# Local deployment overrides (site-specific, never committed)
+deploy/compose.override.yaml
 *.pem
 *.key
 credentials*

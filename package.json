@@ -2,6 +2,15 @@
   "name": "mcp-chest-memory",
   "version": "1.0.0",
   "description": "Local-first agent memory MCP server — 6-layer structured memory with hybrid (FTS + vector) recall, offline multilingual embeddings, and a token-saving file diff cache. Optimized for Claude Code.",
+  "author": "Daisuke ITO <siosig@gmail.com>",
+  "homepage": "https://github.com/siosig/mcp-chest-memory#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/siosig/mcp-chest-memory.git"
+  },
+  "bugs": {
+    "url": "https://github.com/siosig/mcp-chest-memory/issues"
+  },
   "type": "module",
   "bin": {
     "chest-memory": "dist/mcp/server.js",

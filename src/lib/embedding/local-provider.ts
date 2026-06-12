@@ -1,6 +1,6 @@
 // Default embedding provider: a small multilingual model executed locally
 // via transformers.js (ONNX, CPU). No API key required; after the model has
-// been downloaded once (tools/install.sh prefetches it) everything runs
+// been downloaded once (chest-memory-setup prefetches it) everything runs
 // fully offline. E5-family models require the "query: " / "passage: "
 // prefixes for asymmetric retrieval.
 
@@ -25,7 +25,7 @@ function getExtractor(): Promise<FeatureExtractor | null> {
       try {
         const { pipeline, env } = await import("@huggingface/transformers");
         // Keep model files under the chest data directory instead of the
-        // global HF cache, so uninstall.sh can remove everything in one place.
+        // global HF cache, so `rm -rf ~/.chest-memory` removes everything.
         env.cacheDir = modelCacheDir();
         const pipe = await pipeline("feature-extraction", LOCAL_MODEL_ID, { dtype: "q8" });
         return pipe as unknown as FeatureExtractor;

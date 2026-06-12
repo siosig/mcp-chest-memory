@@ -2,8 +2,9 @@
 // chest-index — unified maintenance CLI for chest-memory.
 //
 // Heavy computation (ACT-R activation, archive sweep, supersession sweep,
-// embedding backfill) runs here, outside the MCP server, typically from a
-// periodic scheduler (cron / systemd timer). The MCP server stays I/O-only.
+// embedding backfill). The same phases run automatically in the background
+// after writes (src/lib/maintenance.ts); this CLI is the manual entry point
+// for forced, one-off, or recovery runs.
 //
 // Usage:
 //   chest-index [up]                 normal run: activation + decay + supersess + embed-cycle
@@ -145,7 +146,9 @@ OPTIONS
   --quiet          suppress non-summary output
   -h, --help       this message
 
-SCHEDULING: run \`chest-index up --all\` every ~10 minutes (cron or systemd timer).
+NOTE: no scheduler is required — the server runs these phases in the
+background after writes (throttled by CHEST_MAINTENANCE_INTERVAL_SEC).
+This CLI is the manual escape hatch for forced or one-off runs.
 The schema is managed by 'prisma migrate deploy'; the connection comes from
 CHEST_DB_PATH (or an explicit DATABASE_URL).
 `;

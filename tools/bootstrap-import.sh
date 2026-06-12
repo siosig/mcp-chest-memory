@@ -82,12 +82,12 @@ fi
 
 # --- 3. embedding backfill ----------------------------------------------------
 if [ "$SKIP_EMBED" -eq 1 ]; then
-  say "embedding backfill skipped (--skip-embed); 'chest-index up --embed-cycle' will catch up later"
+  say "embedding backfill skipped (--skip-embed); background maintenance will catch up later"
 else
   say "backfilling embeddings (first run downloads the model if needed)..."
   # Large sweep limit: drain the whole import in one pass. If the model is
-  # unavailable the sweep reports 0 embedded and rows stay pending — the
-  # periodic chest-index run picks them up later.
+  # unavailable the sweep reports 0 embedded and rows stay pending and are
+  # picked up by background maintenance (or a manual chest-index run) later.
   node dist/cli/chest-index.js up --embed-cycle --sweep-limit 1000000 --quiet \
     || say "WARNING: embedding backfill failed — rows stay pending and will be retried by chest-index"
 fi

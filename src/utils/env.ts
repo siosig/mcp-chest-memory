@@ -18,6 +18,10 @@ export const EnvSchema = z.object({
   CHEST_API_TOKEN: z.string().optional(),
   /** REST backend listen port. */
   CHEST_PORT: z.coerce.number().int().positive().default(8765),
+  /** Min seconds between background maintenance passes (decay/sweeps). */
+  CHEST_MAINTENANCE_INTERVAL_SEC: z.coerce.number().int().positive().default(600),
+  /** Set to "0" to disable write-triggered background maintenance. */
+  CHEST_AUTO_MAINTENANCE: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

@@ -36,11 +36,6 @@ export async function fetchRoots(server: Server): Promise<Root[]> {
   return cachedRoots ?? [];
 }
 
-export function invalidateRootsCache() {
-  cachedRoots = null;
-  lastFetched = 0;
-}
-
 // Convert "file:///C:/Users/HP/foo" → "C:/Users/HP/foo" (or "/Users/foo" on POSIX)
 export function rootPathFromUri(uri: string): string {
   if (uri.startsWith('file:///')) {

@@ -71,25 +71,3 @@ export async function confirmForget(
   }
   return false;
 }
-
-export async function confirmPin(
-  server: Server,
-  memoryId: number,
-  preview: string,
-  newImportance: number
-): Promise<boolean> {
-  const res = await elicit(server, {
-    message: `Pin memory #${memoryId}? (importance ${newImportance.toFixed(2)})\n\nPreview: ${preview.slice(0, 200)}\n\nPinned memories survive forget-sweeps and consolidation.`,
-    requestedSchema: {
-      type: 'object',
-      properties: {
-        confirm: { type: 'boolean', title: 'Pin this memory', description: 'Yes = pin. No = save without pinning.' },
-      },
-      required: ['confirm'],
-    },
-  });
-  if (res.action === 'accept' && res.content && typeof res.content.confirm === 'boolean') {
-    return res.content.confirm;
-  }
-  return false;
-}

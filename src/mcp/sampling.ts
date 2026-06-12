@@ -91,24 +91,3 @@ Output the summary text only — no preamble, no JSON wrapper.`;
     temperature: 0.2,
   });
 }
-
-export async function sampleLayerClassification(server: Server, content: string): Promise<SampleResult> {
-  const userPrompt = `Classify this memory content into exactly one layer:
-- goal: WHY this work exists, target outcome
-- context: WHY THIS NOW, situation, timing
-- emotion: USER tone, feelings expressed
-- implementation: HOW it was done, what worked, what failed
-- realize: PAIN lesson, "never X" / "always Y"
-- learning: GROWTH, decisions made, insights
-
-Content:
-${content}
-
-Output just the layer name — no explanation, no JSON.`;
-  return sample(server, {
-    systemPrompt: 'You are a layer classifier. Output one word.',
-    userPrompt,
-    maxTokens: 16,
-    temperature: 0,
-  });
-}

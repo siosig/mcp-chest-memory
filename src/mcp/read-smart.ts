@@ -4,21 +4,11 @@
 
 import { readFileSync, statSync } from 'node:fs';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { prisma, rawAll, rawGet, rawRun } from '../lib/db/prisma-client.js';
 import { chunkFile, hashFile, type Chunk } from '../lib/file-chunker.js';
 import { instantFromUnixSeconds } from '../utils/temporal.js';
 import { estimateTokens, TOKENS_PER_CHAR } from '../lib/token-budget.js';
 import { confinePath, fetchRoots } from './roots.js';
-
-interface SnapshotRow {
-  path: string;
-  content_hash: string;
-  mtime: number;
-  size_bytes: number;
-  chunks: string;
-  last_read_at: number;
-  read_count: number;
-}
+import type { SnapshotStore } from './snapshot-store.js';
 
 interface StoredChunkMeta {
   id: string;
@@ -35,6 +25,7 @@ function toMeta(c: Chunk): StoredChunkMeta {
 export async function handleReadSmart(
   args: { path: string; force?: boolean },
   server: Server,
+  store: SnapshotStore,
 ): Promise<string> {
   const { path: requestedPath, force = false } = args;
 
@@ -62,7 +53,7 @@ export async function handleReadSmart(
   const mtime = Math.floor(stat.mtimeMs / 1000);
   const size = stat.size;
 
-  const prior = await rawGet<SnapshotRow>(prisma, 'SELECT * FROM file_snapshots WHERE path = ?', path);
+  const { snapshot: prior, facts } = await store.get(path);
 
   // --- CASE A: first read or force ---
   if (!prior || force) {
@@ -71,19 +62,13 @@ export async function handleReadSmart(
     const chunks = chunkFile(path, content);
     const chunkMeta = chunks.map(toMeta);
 
-    await rawRun(
-      prisma,
-      `INSERT INTO file_snapshots (path, content_hash, mtime, size_bytes, chunks, last_read_at, read_count)
-       VALUES (?, ?, ?, ?, ?, unixepoch(), 1)
-       ON CONFLICT(path) DO UPDATE SET
-         content_hash = excluded.content_hash,
-         mtime = excluded.mtime,
-         size_bytes = excluded.size_bytes,
-         chunks = excluded.chunks,
-         last_read_at = unixepoch(),
-         read_count = file_snapshots.read_count + 1`,
-      path, fileHash, mtime, size, JSON.stringify(chunkMeta),
-    );
+    await store.put({
+      path,
+      content_hash: fileHash,
+      mtime,
+      size_bytes: size,
+      chunks: JSON.stringify(chunkMeta),
+    });
 
     return JSON.stringify({
       ok: true,
@@ -99,18 +84,9 @@ export async function handleReadSmart(
 
   // --- CASE B: mtime unchanged → content guaranteed unchanged (fast path) ---
   if (prior.mtime === mtime) {
-    await rawRun(
-      prisma,
-      'UPDATE file_snapshots SET last_read_at = unixepoch(), read_count = read_count + 1 WHERE path = ?',
-      path,
-    );
+    await store.touch(path);
 
     const storedChunks = JSON.parse(prior.chunks) as StoredChunkMeta[];
-    const factRows = await rawAll<{ fact: string; layer: string | null; chunk_hash: string | null }>(
-      prisma,
-      'SELECT fact, layer, chunk_hash FROM file_facts WHERE file_path = ?',
-      path,
-    );
 
     // Token savings = what a full read would have cost
     const savedTokens = Math.round(size * TOKENS_PER_CHAR);
@@ -122,7 +98,7 @@ export async function handleReadSmart(
       last_read_at: instantFromUnixSeconds(prior.last_read_at),
       chunk_count: storedChunks.length,
       chunks: storedChunks,
-      file_facts: factRows,
+      file_facts: facts,
       tokens_saved: savedTokens,
       note: 'File unchanged since last read. Call with force:true if full content is needed.',
     });
@@ -133,11 +109,7 @@ export async function handleReadSmart(
   const fileHash = hashFile(content);
 
   if (fileHash === prior.content_hash) {
-    await rawRun(
-      prisma,
-      'UPDATE file_snapshots SET mtime = ?, last_read_at = unixepoch(), read_count = read_count + 1 WHERE path = ?',
-      mtime, path,
-    );
+    await store.touch(path, mtime);
     return JSON.stringify({
       ok: true,
       status: 'unchanged_content',
@@ -173,11 +145,13 @@ export async function handleReadSmart(
     .map((c) => ({ id: c.id, kind: c.kind, prev_lines: `${c.start_line}-${c.end_line}` }));
 
   const newChunkMeta = newChunks.map(toMeta);
-  await rawRun(
-    prisma,
-    `UPDATE file_snapshots SET content_hash = ?, mtime = ?, size_bytes = ?, chunks = ?, last_read_at = unixepoch(), read_count = read_count + 1 WHERE path = ?`,
-    fileHash, mtime, size, JSON.stringify(newChunkMeta), path,
-  );
+  await store.put({
+    path,
+    content_hash: fileHash,
+    mtime,
+    size_bytes: size,
+    chunks: JSON.stringify(newChunkMeta),
+  });
 
   const fullTokens = estimateTokens(content);
   const returnedTokens = changedChunks.reduce((s, c) => s + estimateTokens(c.content), 0) + 80; // ~80 for the envelope

@@ -20,6 +20,9 @@ import { ChestReadSmartInputSchema } from "../schemas/chest-read-smart.js";
 
 import { LocalExecutor, type ToolExecutor } from "../core/executor.js";
 import { RemoteExecutor } from "../http/client.js";
+import { handleReadSmart } from "./read-smart.js";
+import { LocalSnapshotStore, type SnapshotStore } from "./snapshot-store.js";
+import { RemoteSnapshotStore } from "./snapshot-store-remote.js";
 
 import { registerChestResources } from "./resources.js";
 import { registerChestPrompts } from "./prompts.js";
@@ -46,6 +49,12 @@ const mcpServer = new McpServer({
 });
 
 let executor: ToolExecutor;
+// chest_read_smart is the only tool that reads a client-side file, so it always
+// runs in this process (where the file and the client roots exist) regardless of
+// profile; only its snapshot cache is persisted through this store. Picking the
+// store here — the composition root — mirrors picking the executor, so no
+// deployment branch ever enters the read_smart logic itself.
+let snapshotStore: SnapshotStore;
 if (env.CHEST_MODE === "remote") {
   if (!env.CHEST_REMOTE_URL || !env.CHEST_API_TOKEN) {
     process.stderr.write(
@@ -54,8 +63,10 @@ if (env.CHEST_MODE === "remote") {
     process.exit(1);
   }
   executor = new RemoteExecutor({ baseUrl: env.CHEST_REMOTE_URL, token: env.CHEST_API_TOKEN });
+  snapshotStore = new RemoteSnapshotStore(executor);
 } else {
   executor = new LocalExecutor(mcpServer.server);
+  snapshotStore = new LocalSnapshotStore();
 }
 
 function wrapResult(jsonText: string) {
@@ -247,7 +258,8 @@ mcpServer.registerTool(
   },
   async (params) => {
     try {
-      return wrapResult(await executor.execute("chest_read_smart", params));
+      const input = ChestReadSmartInputSchema.parse(params);
+      return wrapResult(await handleReadSmart(input, mcpServer.server, snapshotStore));
     } catch (err: unknown) {
       return wrapError(err);
     }

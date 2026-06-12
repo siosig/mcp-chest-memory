@@ -1,0 +1,25 @@
+# LAN deployment: one backend container, SQLite persisted on the host.
+#
+#   CHEST_API_TOKEN=$(openssl rand -hex 32) docker compose up -d
+#
+# Clients register with:
+#   ./tools/install.sh --remote http://<host-ip>:8765 --token <same token>
+#
+# Keep replicas at 1 — a single writer process owns the SQLite file.
+services:
+  chest:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: chest-memory:latest
+    container_name: chest-memory
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    environment:
+      CHEST_API_TOKEN: ${CHEST_API_TOKEN:?set CHEST_API_TOKEN (e.g. openssl rand -hex 32)}
+      CHEST_EMBEDDING_PROVIDER: ${CHEST_EMBEDDING_PROVIDER:-local}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      # Host-persisted database + model cache: survives container re-creation.
+      - ./data:/data

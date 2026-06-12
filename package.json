@@ -1,0 +1,86 @@
+{
+  "name": "mcp-chest-memory",
+  "version": "1.0.0",
+  "description": "Local-first agent memory MCP server — 6-layer structured memory with hybrid (FTS + vector) recall, offline multilingual embeddings, and a token-saving file diff cache. Optimized for Claude Code.",
+  "type": "module",
+  "bin": {
+    "chest-memory": "dist/mcp/server.js",
+    "chest-server": "dist/http/server.js",
+    "chest-index": "dist/cli/chest-index.js",
+    "chest-memory-setup": "dist/bin/setup.js",
+    "chest-memory-install-skill": "dist/bin/install-skill.js",
+    "chest-memory-import": "dist/bin/import-sessions.js",
+    "chest-memory-sync": "dist/bin/sync-session.js",
+    "chest-memory-stats": "dist/bin/stats.js",
+    "chest-memory-precompact": "dist/bin/precompact.js",
+    "chest-memory-session-start": "dist/bin/session-start.js",
+    "chest-fetch-model": "dist/bin/fetch-model.js"
+  },
+  "main": "./dist/mcp/server.js",
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/skill/SKILL.md",
+    "prisma/schema.prisma",
+    "prisma/migrations/**/*.sql",
+    "prisma/migrations/migration_lock.toml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "prisma generate && tsc && node -e \"require('fs').mkdirSync('dist/skill',{recursive:true}); require('fs').copyFileSync('src/skill/SKILL.md','dist/skill/SKILL.md')\"",
+    "start": "node dist/mcp/server.js",
+    "dev": "tsx src/mcp/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test --test-concurrency=1 \"test/**/*.test.ts\"",
+    "db:generate": "prisma generate",
+    "db:deploy": "prisma migrate deploy",
+    "db:status": "prisma migrate status",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "memory",
+    "agent",
+    "agent-memory",
+    "claude",
+    "claude-code",
+    "sqlite",
+    "embeddings",
+    "local-first",
+    "token-savings",
+    "cross-agent"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.29.7",
+    "@google/genai": "^2.7.0",
+    "@hono/node-server": "^1.14.0",
+    "@huggingface/transformers": "^3.5.0",
+    "@js-temporal/polyfill": "^0.5.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@prisma/client": "^6.16.0",
+    "hono": "^4.12.18",
+    "pino": "^10.3.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.19",
+    "prisma": "^6.16.0",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "prisma",
+      "onnxruntime-node",
+      "sharp",
+      "protobufjs"
+    ]
+  }
+}

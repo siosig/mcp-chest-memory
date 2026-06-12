@@ -99,6 +99,44 @@ Seed the memory store from every past session under `~/.claude/projects/`
 
 Re-running is safe: each session is wiped and re-inserted idempotently.
 
+## Daily usage
+
+### What you have to do: (almost) nothing
+
+After installation, just work with Claude Code as usual. The bundled
+`/chest-memory` skill teaches the agent to recall and save memories on its
+own. Everything below is optional:
+
+- Say **"remember this: ..."** to force a save of something specific
+- Invoke **`/chest-memory`** to save the recent context explicitly,
+  or **`/chest-memory status`** to check store health
+- Ask **"did we hit this before?"** to force a recall
+- **One-time (recommended)**: schedule the maintenance run so decay and
+  ranking stay fresh — e.g. a cron entry:
+  `*/10 * * * * cd <repo> && node dist/cli/chest-index.js up --all`
+- **Optional**: `chest-memory-setup --yes` wires the Claude Code hooks
+  (session auto-capture on Stop, snapshot save/restore around compaction)
+
+### What runs automatically even if you do nothing
+
+- **On every save** (`chest_remember`): the layer is classified by the
+  agent, content is stored in SQLite, the FTS5 index updates via triggers,
+  the vector is embedded in-process by the local model, and `realize`-layer
+  memories are auto-protected from forgetting
+- **On every recall** (`chest_recall`): FTS + vector hybrid search with
+  decay-aware ranking; access heat is updated so frequently used memories
+  rank higher over time
+- **During a session** (skill-driven): recall at task start and before
+  editing files with history; saves after errors are resolved or decisions
+  are made
+- **With hooks enabled**: every session is captured on Stop, and work-state
+  snapshots survive context compaction
+- **On each scheduled `chest-index up --all`**: activation decay recompute,
+  TTL expiry and archive sweep, supersession detection, consolidation of
+  cold memories, and embedding backfill for any pending rows. If you skip
+  scheduling this, saving and recall still work — rankings just decay less
+  accurately and cold memories are never compressed
+
 ### MCP tools
 
 | Tool | Purpose |

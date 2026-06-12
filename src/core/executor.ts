@@ -7,7 +7,6 @@
 // Tool semantics therefore never diverge between profiles.
 
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import type { ZodType } from "zod";
 
 import { ChestRememberInputSchema } from "../schemas/chest-remember.js";
 import { ChestRecallInputSchema } from "../schemas/chest-recall.js";
@@ -50,17 +49,6 @@ export interface ToolExecutor {
   /** Execute one tool call; the result is the tool's JSON string payload. */
   execute(name: ToolName, args: unknown): Promise<string>;
 }
-
-export const TOOL_INPUT_SCHEMAS: Record<ToolName, ZodType> = {
-  chest_remember: ChestRememberInputSchema,
-  chest_recall: ChestRecallInputSchema,
-  chest_update_memory: ChestUpdateMemoryInputSchema,
-  chest_list_entities: ChestListEntitiesInputSchema,
-  chest_forget: ChestForgetInputSchema,
-  chest_consolidate: ChestConsolidateInputSchema,
-  chest_recall_file: ChestRecallFileInputSchema,
-  chest_read_smart: ChestReadSmartInputSchema,
-};
 
 // With the local provider, freshly written memories are embedded in-process
 // right after the write so vector recall works immediately. Failures are

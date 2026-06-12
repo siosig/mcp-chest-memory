@@ -56,7 +56,3 @@ export function modelCacheDir(env: Env = validateEnv()): string {
   return join(dataDir(env), "models");
 }
 
-/** Reset the cached env (test helper). */
-export function resetEnvCache(): void {
-  cached = undefined;
-}

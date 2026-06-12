@@ -12,8 +12,3 @@ function envNum(name: string, defaultValue: number): number {
 export const MAX_CONTENT_CHARS = envNum("CHEST_MAX_CONTENT_CHARS", 8000);
 /** Max rows backfilled per `chest-index` embedding sweep. */
 export const SWEEP_LIMIT = envNum("CHEST_SWEEP_LIMIT", 500);
-
-// --- Embedding row states ---
-// pending: stored but not yet embedded (model unavailable at write time)
-// done:    vector stored, searchable when (model, dim) match the provider
-export type EmbeddingStatus = "pending" | "done";

@@ -83,16 +83,6 @@ export async function shutdownPrisma(): Promise<void> {
 }
 
 /**
- * Recursively stringify BigInt values for MCP/JSON responses.
- * Memory.id and friends are bigint and would make JSON.stringify throw.
- */
-export function serializeBigInt<T>(value: T): T {
-  return JSON.parse(
-    JSON.stringify(value, (_key, val) => (typeof val === "bigint" ? val.toString() : val))
-  ) as T;
-}
-
-/**
  * $queryRaw returns BIGINT columns as `bigint`. The scoring/decay logic does
  * arithmetic on ids and timestamps as `number` (all values < 2^53), so flat
  * rows are coerced once at the boundary.

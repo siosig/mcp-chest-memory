@@ -8,7 +8,6 @@ export const EntityKindSchema = z.enum([
   "file",
   "other",
 ]);
-export type EntityKind = z.infer<typeof EntityKindSchema>;
 
 export const CANONICAL_LAYERS = [
   "goal",
@@ -24,9 +23,6 @@ export type CanonicalLayer = z.infer<typeof CanonicalLayerSchema>;
 
 export const HeatBandSchema = z.enum(["hot", "warm", "cold", "frozen"]);
 export type HeatBand = z.infer<typeof HeatBandSchema>;
-
-export const MomentumBandSchema = z.enum(["surging", "active", "quiet", "dormant"]);
-export type MomentumBand = z.infer<typeof MomentumBandSchema>;
 
 export const LayerInputSchema = z
   .string()

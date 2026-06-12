@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EntityKindSchema, ImportanceSchema, LayerInputSchema, MomentumBandSchema } from "./common.js";
+import { EntityKindSchema, ImportanceSchema, LayerInputSchema } from "./common.js";
 import { MAX_CONTENT_CHARS } from "../lib/embedding/config.js";
 
 export const ChestRememberInputSchema = z
@@ -36,22 +36,3 @@ export const ChestRememberInputSchema = z
   .strict();
 
 export type ChestRememberInput = z.infer<typeof ChestRememberInputSchema>;
-
-export const ChestRememberResultSchema = z.discriminatedUnion("ok", [
-  z.object({
-    ok: z.literal(true),
-    memory_id: z.number(),
-    entity_id: z.number(),
-    layer: z.string(),
-    pinned: z.boolean(),
-    momentum: z.object({ score: z.number(), band: MomentumBandSchema }),
-  }),
-  z.object({
-    ok: z.literal(false),
-    rejected: z.string().optional(),
-    reason: z.string().optional(),
-    error: z.string().optional(),
-    hint: z.string().optional(),
-  }),
-]);
-export type ChestRememberResult = z.infer<typeof ChestRememberResultSchema>;

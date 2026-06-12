@@ -102,9 +102,12 @@ npx -y -p mcp-chest-memory chest-memory-import --all
 
 #### バックエンドを起動（データを持つホスト側）
 
+リポジトリをクローンして `deploy/` ディレクトリを取得し、
 トークンを生成してコンテナを起動します:
 
 ```bash
+git clone https://github.com/siosig/mcp-chest-memory.git
+cd mcp-chest-memory
 openssl rand -hex 32   # これをコピーしておく — 全クライアントで使う
 cd deploy
 CHEST_API_TOKEN=<token> docker compose up -d

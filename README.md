@@ -110,9 +110,12 @@ All clients share one SQLite database that lives on the Docker host.
 
 #### Start the backend (on the host that owns the data)
 
-Generate a token, then start the container:
+Clone the repository to get the `deploy/` directory, then generate a token
+and start the container:
 
 ```bash
+git clone https://github.com/siosig/mcp-chest-memory.git
+cd mcp-chest-memory
 openssl rand -hex 32   # copy this — you need it on every client
 cd deploy
 CHEST_API_TOKEN=<token> docker compose up -d

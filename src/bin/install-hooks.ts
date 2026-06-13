@@ -3,6 +3,7 @@
 //   Stop         → chest-memory-sync           (auto-capture the session)
 //   PreCompact   → chest-memory-precompact     (save a work-state snapshot)
 //   SessionStart → chest-memory-session-start  (restore the snapshot)
+//   UserPromptSubmit → chest-memory-user-prompt-submit (remote auto-recall)
 //
 // Usage:
 //   install-hooks.js [--data-dir DIR] [--db-path PATH] [--settings PATH]

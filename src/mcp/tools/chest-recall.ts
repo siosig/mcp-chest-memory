@@ -524,6 +524,7 @@ export async function handleChestRecall(
       content: parsedContent,
       ...(contentTruncated ? { content_truncated: true } : {}),
       importance: r.importance,
+      created_at: r.created_at,
       pinned: r.importance >= 0.9,
       heat: Number(r.heat_score.toFixed(1)),
       band: r.heat_band,

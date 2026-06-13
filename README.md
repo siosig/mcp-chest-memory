@@ -65,6 +65,7 @@ feel the difference for yourself — getting started solo is very easy.
   - [Stop — chest-memory-sync](#stop--chest-memory-sync)
   - [PreCompact — chest-memory-precompact](#precompact--chest-memory-precompact)
   - [SessionStart — chest-memory-session-start](#sessionstart--chest-memory-session-start)
+  - [UserPromptSubmit — chest-memory-user-prompt-submit](#userpromptsubmit--chest-memory-user-prompt-submit)
 - [Development](#development)
 - [Security](#security)
   - [Threat model](#threat-model)
@@ -483,7 +484,7 @@ automatic passes and drive everything via `chest-index` yourself.
 - **Skill**: `/chest-memory` (installed by `chest-memory-setup`) auto-classifies
   the recent conversation into `realize` vs `learning` and saves it with the
   rationale shown; `/chest-memory status` reports store health
-- **Hooks** (wired by `chest-memory-setup --yes`): three hooks are registered in
+- **Hooks** (wired by `chest-memory-setup --yes`): four hooks are registered in
   `~/.claude/settings.json`. Re-wire any time with
   `npx -y -p mcp-chest-memory chest-memory-install-hooks`; remove with `--remove`.
 
@@ -519,7 +520,20 @@ Fires at the very beginning of each session.
 | **stdout** | `<session_knowledge>…</session_knowledge>` injected as `additionalContext`, or nothing |
 | **action** | Outputs the saved snapshot **only** when `source` is `compact` or `resume`. Fresh startups (`startup`) and conversation clears (`clear`) produce no output so they start with a clean slate. In remote mode the snapshot is fetched from the backend. |
 
-All three hooks exit `0` on any error (fail-silent) and write to
+#### UserPromptSubmit — `chest-memory-user-prompt-submit`
+
+Fires whenever Claude Code receives a user prompt. In remote mode, meaningful
+prompts are sent to the backend hook recall endpoint for bounded `realize` and
+`learning` memory summaries. Short acknowledgements such as `ok`, `continue`,
+`はい`, and `続けて` are skipped.
+
+| | |
+|---|---|
+| **stdin** | `{ session_id, prompt, cwd, … }` |
+| **stdout** | `<chest-recall>…</chest-recall>` injected as `additionalContext`, or nothing |
+| **action** | Calls `POST /api/hooks/recall` with the same Bearer token as the other remote hooks. Recall runs with access tracking disabled, excludes archived/superseded memories, and frames all emitted content as untrusted data rather than instructions. |
+
+All four hooks exit `0` on any error (fail-silent) and write to
 `~/.chest-memory/hook.log` (rotated at 1 MB, owner-only `0600`). In remote mode
 each hook command embeds `CHEST_MODE=remote`, `CHEST_REMOTE_URL`, and
 `CHEST_API_TOKEN` so session data is forwarded to the backend instead of a local

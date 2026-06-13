@@ -10,8 +10,8 @@
 // The script seeds its own temp database from recall-dataset.json so it is
 // self-contained without touching production data.
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
@@ -19,9 +19,11 @@ import { DatabaseSync } from "node:sqlite";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const repoRoot = join(__dirname, "../..");
 
-// Provision a throwaway database before the Prisma client initializes.
-const dir = mkdtempSync(join(tmpdir(), "chest-eval-"));
-const dbFile = join(dir, "chest.db");
+// Use the persistent chest-memory directory so the model cache is shared with
+// the production install. Only the eval DB itself is ephemeral.
+const dir = join(homedir(), ".chest-memory");
+mkdirSync(dir, { recursive: true });
+const dbFile = join(dir, `eval-temp-${Date.now()}.db`);
 const db = new DatabaseSync(dbFile);
 db.exec(readFileSync(join(repoRoot, "prisma/migrations/0_init/migration.sql"), "utf8"));
 db.exec(readFileSync(join(repoRoot, "prisma/migrations/1_multilingual_fts/migration.sql"), "utf8"));
@@ -38,6 +40,8 @@ process.env.CHEST_FTS_TOKENIZE = "true";
 const { handleChestRemember } = await import("../../src/mcp/tools/chest-remember.js");
 const { handleChestRecall } = await import("../../src/mcp/tools/chest-recall.js");
 const { activeProvider } = await import("../../src/lib/embedding/provider.js");
+const { ensurePrismaInitialized } = await import("../../src/lib/db/prisma-client.js");
+await ensurePrismaInitialized();
 
 const datasetPath = join(__dirname, "recall-dataset.json");
 
@@ -210,9 +214,11 @@ const output = {
 
 process.stdout.write(JSON.stringify(output, null, 2) + "\n");
 
-// Cleanup.
+// Cleanup: remove only the eval DB, not the persistent data directory.
 try {
-  rmSync(dir, { recursive: true, force: true });
+  for (const suffix of ["", "-shm", "-wal"]) {
+    rmSync(`${dbFile}${suffix}`, { force: true });
+  }
 } catch {
   // Non-fatal.
 }

@@ -41,7 +41,7 @@ export async function checkEnvToken(container: string): Promise<PartialResult> {
       status: "fail",
       message: "CHEST_API_TOKEN is not set in the container environment.",
       fix_hint:
-        "Set CHEST_API_TOKEN in `deploy/compose.override.yaml` (env or env_file) and restart the container.",
+        "Set CHEST_API_TOKEN in `deploy/docker/compose.override.yaml` (env or env_file) and restart the container.",
     };
   }
   if (DUMMY_TOKEN_VALUES.has(value)) {

@@ -199,7 +199,7 @@ change the port mapping in `compose.yaml` to `127.0.0.1:8765:8765`.
 
 #### Configure nginx
 
-Copy [`deploy/nginx.conf.example`](deploy/nginx.conf.example) into your nginx
+Copy [`deploy/nginx/nginx.conf.example`](deploy/nginx/nginx.conf.example) into your nginx
 configuration, set `server_name` and certificate paths, then
 `nginx -t && systemctl reload nginx`. The example publishes the backend under
 the `/chest-memory` path prefix; a health probe is available at
@@ -311,7 +311,7 @@ flowchart LR
 |---|---|---|---|
 | Single PC | stdio → in-process SQLite | `~/.chest-memory/chest.db` | `chest-memory-setup --yes` |
 | Multi-PC (LAN) | stdio → REST (Bearer) → Docker | host bind mount (`deploy/data/`) | `docker compose up` + `chest-memory-setup --docker` |
-| Multi-PC (WAN) | stdio → nginx (TLS) → Docker | host bind mount | above + `deploy/nginx.conf.example` |
+| Multi-PC (WAN) | stdio → nginx (TLS) → Docker | host bind mount | above + `deploy/nginx/nginx.conf.example` |
 
 The MCP tool surface is identical in every profile: the stdio server either
 executes tools in-process (local) or forwards the same JSON payload to the
@@ -568,7 +568,7 @@ Example (a missing compose override — the most common deployment mistake):
 
 ```
 [fail] server.compose.override    compose.override.yaml not applied
-         fix: docker compose -f deploy/compose.yaml -f deploy/compose.override.yaml up -d
+         fix: docker compose -f deploy/docker/compose.yaml -f deploy/docker/compose.override.yaml up -d
 ```
 
 ### fetch-model
@@ -703,7 +703,7 @@ SQLite file.
 
 #### Rules — `chest-memory-rules`
 
-`chest-memory-setup --yes` step 3/4 copies the bundled `deploy/mcp-chest-memory.md`
+`chest-memory-setup --yes` step 3/4 copies the bundled `deploy/claude/rules/mcp-chest-memory.md`
 to `~/.claude/rules/mcp-chest-memory.md`. Claude Code loads this file at session
 start and tells the agent when to call `chest_recall` / `chest_remember`, how to
 classify layers, and what actions are prohibited. `applyTo: "**"` applies it to
@@ -848,8 +848,8 @@ rewrite memories.
 | SQL injection | Every query binds values as parameters — no user string is concatenated into SQL. Simple CRUD uses the Prisma ORM (typed columns, no string-built clauses); the remaining raw SQL is reserved for SQLite-specific features (FTS5/`bm25`, vector ranking, claim-style updates) and still parameter-bound. The previous dynamic `SET`-clause builder was replaced by a typed ORM update. | repo-wide |
 | Stored-memory prompt injection | Recall responses carry a notice that memory `content` is untrusted **data, not instructions**; the consolidation prompt wraps each memory in `<memory_data>` tags with a treat-as-data preamble. | `chest_recall`, `src/mcp/sampling.ts` |
 | Settings corruption / secret leakage | `~/.claude/settings.json` is written atomically (temp file + rename) and owner-only (`0600`); hook logs are `0600`; the Stop-hook importer only accepts transcripts under `~/.claude/projects`. | `src/lib/fs-atomic.ts`, `src/lib/hooks-install.ts`, `src/bin/sync-session.ts` |
-| Container/host compromise | The Docker image runs as the non-root `node` user over the bind mount; the maintenance lock lives in the user-owned data dir (not world-writable `/tmp`). | `deploy/Dockerfile`, `src/cli/chest-index-flock.ts` |
-| Weak auth / network exposure | The backend requires a Bearer token of at least 32 characters, compares it in constant time, binds the host configured by `CHEST_BIND_HOST`, and limits request bodies to 1 MB (50 MB for the session-ingestion endpoint). The nginx example sends HSTS and a restrictive CSP. | `src/http/`, `deploy/nginx.conf.example` |
+| Container/host compromise | The Docker image runs as the non-root `node` user over the bind mount; the maintenance lock lives in the user-owned data dir (not world-writable `/tmp`). | `deploy/docker/Dockerfile`, `src/cli/chest-index-flock.ts` |
+| Weak auth / network exposure | The backend requires a Bearer token of at least 32 characters, compares it in constant time, binds the host configured by `CHEST_BIND_HOST`, and limits request bodies to 1 MB (50 MB for the session-ingestion endpoint). The nginx example sends HSTS and a restrictive CSP. | `src/http/`, `deploy/nginx/nginx.conf.example` |
 
 ### Residual risks (by design)
 

@@ -1,6 +1,6 @@
 # chest-memory REST backend image.
 # Build from the repository root:
-#   docker build -f deploy/Dockerfile -t chest-memory .
+#   docker build -f deploy/docker/Dockerfile -t chest-memory .
 
 # --- build stage -------------------------------------------------------------
 FROM node:24-slim AS build
@@ -16,7 +16,7 @@ RUN npm install
 COPY tsconfig.json ./
 COPY prisma ./prisma
 COPY src ./src
-COPY deploy/mcp-chest-memory.md ./deploy/mcp-chest-memory.md
+COPY deploy/claude/rules/mcp-chest-memory.md ./deploy/claude/rules/mcp-chest-memory.md
 RUN npm run build
 
 # --- runtime stage -----------------------------------------------------------

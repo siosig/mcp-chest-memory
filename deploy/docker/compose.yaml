@@ -9,8 +9,8 @@
 services:
   chest:
     build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
     image: chest-memory:latest
     container_name: chest-memory
     restart: unless-stopped

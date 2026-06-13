@@ -3,7 +3,7 @@
 // Historical incidents this guards against:
 //   - Memory ID 5134: starting the container without the override file makes
 //     the data dir owned by root, causing a readonly DB crash.
-//   - Memory ID 5135: missing `deploy/mcp-chest-memory.md` inside the image
+//   - Memory ID 5135: missing `deploy/claude/rules/mcp-chest-memory.md` inside the image
 //     means the rules file is never installed on client setups.
 
 import { spawnSync } from "node:child_process";
@@ -16,7 +16,7 @@ const DOCKER_TIMEOUT_MS = 5000;
 const OVERRIDE_NAME = "compose.override.yaml";
 const RULES_PATH_IN_IMAGE = "/app/dist/rules/mcp-chest-memory.md";
 const COMPOSE_FIX_HINT =
-  "docker compose -f deploy/compose.yaml -f deploy/compose.override.yaml up -d";
+  "docker compose -f deploy/docker/compose.yaml -f deploy/docker/compose.override.yaml up -d";
 
 /**
  * Verify the running container was started with `compose.override.yaml`.
@@ -87,6 +87,6 @@ export async function checkDeployRulesFile(name: string): Promise<PartialResult>
     status: "fail",
     message: `Rules file ${RULES_PATH_IN_IMAGE} is missing from the image (Dockerfile COPY likely omitted deploy/).`,
     fix_hint:
-      "Rebuild the image with `deploy/mcp-chest-memory.md` included: docker compose -f deploy/compose.yaml -f deploy/compose.override.yaml build --no-cache && docker compose -f deploy/compose.yaml -f deploy/compose.override.yaml up -d",
+      "Rebuild the image with `deploy/claude/rules/mcp-chest-memory.md` included: docker compose -f deploy/docker/compose.yaml -f deploy/docker/compose.override.yaml build --no-cache && docker compose -f deploy/docker/compose.yaml -f deploy/docker/compose.override.yaml up -d",
   };
 }

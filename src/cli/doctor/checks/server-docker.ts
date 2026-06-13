@@ -80,7 +80,7 @@ export async function checkContainerRunning(name: string): Promise<PartialResult
   return {
     status: "fail",
     message: `Container '${name}' is not running (status=${status}).`,
-    fix_hint: `docker compose -f deploy/compose.yaml -f deploy/compose.override.yaml up -d`,
+    fix_hint: `docker compose -f deploy/docker/compose.yaml -f deploy/docker/compose.override.yaml up -d`,
   };
 }
 
@@ -160,7 +160,7 @@ export function dockerInspect(name: string): InspectOk | InspectFail {
       result: {
         status: "fail",
         message: `docker inspect '${name}' exited ${r.status}: ${stderr || "no such container"}`,
-        fix_hint: `Start the container: docker compose -f deploy/compose.yaml -f deploy/compose.override.yaml up -d`,
+        fix_hint: `Start the container: docker compose -f deploy/docker/compose.yaml -f deploy/docker/compose.override.yaml up -d`,
       },
     };
   }

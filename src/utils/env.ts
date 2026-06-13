@@ -19,6 +19,12 @@ export const EnvSchema = z.object({
   /** REST backend listen port. */
   CHEST_PORT: z.coerce.number().int().positive().default(8765),
   /**
+   * Fallback allow-list for chest_read_smart when the MCP client does not declare
+   * the roots capability. Colon-separated absolute paths on POSIX, semicolon-separated
+   * on Windows (same convention as PATH). Ignored when roots/list succeeds.
+   */
+  CHEST_ROOTS: z.string().optional(),
+  /**
    * REST backend listen host. Defaults to 0.0.0.0 (unchanged behavior); set to
    * 127.0.0.1 to bind loopback only when a reverse proxy fronts the backend.
    */

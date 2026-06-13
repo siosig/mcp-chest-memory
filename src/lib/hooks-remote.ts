@@ -2,6 +2,11 @@
 // when CHEST_MODE=remote.  Uses the same CHEST_REMOTE_URL / CHEST_API_TOKEN env
 // vars as the MCP remote client so no additional configuration is required.
 
+import {
+  HookRecallResponseSchema,
+  type HookRecalledMemory,
+} from "../schemas/hook-recall.js";
+
 function remoteBase(): string {
   const url = process.env['CHEST_REMOTE_URL'];
   if (!url) throw new Error('CHEST_REMOTE_URL is not set');
@@ -77,4 +82,35 @@ export async function loadSnapshotRemote(sessionId: string): Promise<string | nu
   }
   const json = (await res.json()) as { ok: boolean; text?: string };
   return json.text ?? null;
+}
+
+export interface RecallRemoteOptions {
+  project?: string;
+  layers?: string[];
+  limit?: number;
+  max_tokens?: number;
+  signal?: AbortSignal;
+}
+
+export async function recallRemote(
+  query: string,
+  opts: RecallRemoteOptions = {},
+): Promise<HookRecalledMemory[]> {
+  const url = `${remoteBase()}/api/hooks/recall`;
+  const { signal, ...bodyOptions } = opts;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ query, ...bodyOptions }),
+    signal,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`recall remote error ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const json = HookRecallResponseSchema.parse(await res.json());
+  return json.memories;
 }

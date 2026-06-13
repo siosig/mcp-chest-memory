@@ -12,8 +12,11 @@ import { ZodError } from "zod";
 import { LocalExecutor, isToolName, type ToolExecutor } from "../core/executor.js";
 import { prisma } from "../lib/db/prisma-client.js";
 import { activeProvider } from "../lib/embedding/provider.js";
+import { createHookRecallFacade } from "../lib/recall/factory.js";
+import type { HookRecallFacade } from "../lib/recall/hook-recall-facade.js";
 import { saveSnapshot, loadSnapshot } from "../lib/snapshot/store.js";
 import { importSessionContent } from "../lib/session-import.js";
+import { HookRecallRequestSchema, normalizeHookRecallRequest } from "../schemas/hook-recall.js";
 import { ChestError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 
@@ -22,6 +25,8 @@ export interface CreateAppOptions {
   token: string;
   /** Injection point for tests. */
   executor?: ToolExecutor;
+  /** Injection point for hook recall tests and alternate recall strategies. */
+  hookRecallFacade?: HookRecallFacade;
   /** Server version reported by /healthz. */
   version?: string;
 }
@@ -40,6 +45,7 @@ export function createApp(opts: CreateAppOptions): Hono {
     throw new Error("CHEST_API_TOKEN is required — refusing to start an unauthenticated backend");
   }
   const executor = opts.executor ?? new LocalExecutor();
+  const hookRecallFacade = opts.hookRecallFacade ?? createHookRecallFacade();
   const app = new Hono();
 
   // Access log (no token, no body).
@@ -96,6 +102,11 @@ export function createApp(opts: CreateAppOptions): Hono {
 
   // Hook: snapshot/precompact payloads are tiny.
   app.use("/api/hooks/precompact", bodyLimit({
+    maxSize: 64 * 1024,
+    onError: (c) => c.json(errorBody("PAYLOAD_TOO_LARGE", "Request body exceeds 64KB"), 413),
+  }));
+
+  app.use("/api/hooks/recall", bodyLimit({
     maxSize: 64 * 1024,
     onError: (c) => c.json(errorBody("PAYLOAD_TOO_LARGE", "Request body exceeds 64KB"), 413),
   }));
@@ -158,6 +169,31 @@ export function createApp(opts: CreateAppOptions): Hono {
     } catch (e) {
       logger.error({ err: e instanceof Error ? e.message : String(e), sessionId }, "hook:snapshot failed");
       return c.json(errorBody("INTERNAL_ERROR", "Snapshot load failed"), 500);
+    }
+  });
+
+  // POST /api/hooks/recall
+  // Body: { query, project?, layers?, limit?, max_tokens? }
+  app.post("/api/hooks/recall", async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json(errorBody("VALIDATION_ERROR", "Request body must be JSON"), 400);
+    }
+    try {
+      const request = normalizeHookRecallRequest(HookRecallRequestSchema.parse(raw));
+      const response = await hookRecallFacade.recall(request);
+      return c.json(response);
+    } catch (e) {
+      if (e instanceof ZodError) {
+        const summary = e.issues
+          .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+          .join("; ");
+        return c.json(errorBody("VALIDATION_ERROR", summary), 400);
+      }
+      logger.error({ err: e instanceof Error ? e.message : String(e) }, "hook:recall failed");
+      return c.json(errorBody("INTERNAL_ERROR", "Recall failed"), 500);
     }
   });
 

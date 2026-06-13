@@ -1,9 +1,10 @@
 // Wiring of the Claude Code hooks into ~/.claude/settings.json.
 //
-// Three hooks ship with chest-memory:
+// Four hooks ship with chest-memory:
 //   Stop         → chest-memory-sync           (auto-capture the session)
 //   PreCompact   → chest-memory-precompact     (save a work-state snapshot)
 //   SessionStart → chest-memory-session-start  (restore the snapshot)
+//   UserPromptSubmit → chest-memory-user-prompt-submit (remote auto-recall)
 //
 // Shared by chest-memory-install-hooks and chest-memory-setup; both wire
 // `npx -y -p mcp-chest-memory@latest <bin>` commands so the hooks always run
@@ -17,7 +18,7 @@ import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { writeFileAtomic } from './fs-atomic.js';
 
-export type HookEvent = 'Stop' | 'PreCompact' | 'SessionStart';
+export type HookEvent = 'Stop' | 'PreCompact' | 'SessionStart' | 'UserPromptSubmit';
 
 export interface HookSpec {
   event: HookEvent;
@@ -51,13 +52,18 @@ const HOOK_BINS: Record<HookEvent, { script: string; npxBin: string }> = {
   Stop: { script: 'sync-session.js', npxBin: 'chest-memory-sync' },
   PreCompact: { script: 'precompact.js', npxBin: 'chest-memory-precompact' },
   SessionStart: { script: 'session-start.js', npxBin: 'chest-memory-session-start' },
+  UserPromptSubmit: { script: 'user-prompt-submit.js', npxBin: 'chest-memory-user-prompt-submit' },
 };
 
 export const HOOK_EVENTS = Object.keys(HOOK_BINS) as HookEvent[];
 
 function markersFor(event: HookEvent): string[] {
   const { script, npxBin } = HOOK_BINS[event];
-  return [script, npxBin];
+  const markers = [script, npxBin];
+  if (event === 'UserPromptSubmit') {
+    markers.push('<chest-memory-必須チェック>', 'chest_recall を呼べ', 'chest_recall');
+  }
+  return markers;
 }
 
 // Hooks launch through npx so they always run the published package. `-p

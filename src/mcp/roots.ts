@@ -5,9 +5,15 @@
 //
 // MCP semantics: client owns the root list, server is informed. We refresh on demand
 // (lazily on first use) and on roots/list_changed notification.
+//
+// Fallback: when the MCP client does not declare the roots capability (e.g. older Claude Code
+// versions that pre-date roots support), CHEST_ROOTS env var provides an explicit allow-list.
+// Format: colon-separated absolute paths on POSIX, semicolon-separated on Windows — same
+// convention as the PATH variable.
 
 import { realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, delimiter } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
@@ -30,19 +36,39 @@ export function resetRootsCache(): void {
 export async function fetchRoots(server: Server): Promise<Root[]> {
   const now = Date.now();
   if (cachedRoots && now - lastFetched < STALE_MS) return cachedRoots;
+
+  // Try the MCP protocol first (client declares "roots" capability during handshake).
   try {
     const res = (await server.request(
       { method: 'roots/list', params: {} },
       ListRootsRequestSchema,
     )) as { roots?: Root[] };
-    cachedRoots = Array.isArray(res?.roots) ? res.roots : [];
-    lastFetched = now;
+    const roots = Array.isArray(res?.roots) ? res.roots : [];
+    if (roots.length > 0) {
+      cachedRoots = roots;
+      lastFetched = now;
+      return cachedRoots;
+    }
+    // Protocol succeeded but returned an empty list — fall through to env fallback.
   } catch {
-    // Client may not support roots; treat as empty.
-    cachedRoots = [];
-    lastFetched = now;
+    // Client does not support the roots capability (e.g. older Claude Code versions).
+    // Fall through to the CHEST_ROOTS env fallback below.
   }
-  return cachedRoots ?? [];
+
+  // Fallback: CHEST_ROOTS — colon-separated (POSIX) or semicolon-separated (Windows) paths.
+  // Enables chest_read_smart when the MCP client does not implement roots/list.
+  // The REST backend never has CHEST_ROOTS set, so it continues to fail closed.
+  const envRoots = process.env['CHEST_ROOTS'];
+  if (envRoots) {
+    cachedRoots = envRoots
+      .split(delimiter)
+      .filter(Boolean)
+      .map((p) => ({ uri: pathToFileURL(p).toString() }));
+  } else {
+    cachedRoots = [];
+  }
+  lastFetched = now;
+  return cachedRoots;
 }
 
 // Convert "file:///C:/Users/HP/foo" → "C:/Users/HP/foo" (or "/Users/foo" on POSIX)

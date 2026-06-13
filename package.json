@@ -25,6 +25,7 @@
     "chest-memory-stats": "dist/bin/stats.js",
     "chest-memory-precompact": "dist/bin/precompact.js",
     "chest-memory-session-start": "dist/bin/session-start.js",
+    "chest-memory-user-prompt-submit": "dist/bin/user-prompt-submit.js",
     "chest-fetch-model": "dist/bin/fetch-model.js"
   },
   "main": "./dist/mcp/server.js",

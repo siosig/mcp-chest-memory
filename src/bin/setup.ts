@@ -90,8 +90,11 @@ const CLAUDE_DIR = join(HOME, '.claude');
 const SETTINGS_PATH = join(CLAUDE_DIR, 'settings.json');
 const SKILL_DIR = join(CLAUDE_DIR, 'skills', 'chest-memory');
 const SKILL_TARGET = join(SKILL_DIR, 'SKILL.md');
+const RULES_DIR = join(CLAUDE_DIR, 'rules');
+const RULES_TARGET = join(RULES_DIR, 'mcp-chest-memory.md');
 const __filename = fileURLToPath(import.meta.url);
 const SKILL_SRC = join(dirname(__filename), '..', 'skill', 'SKILL.md');
+const RULES_SRC = join(dirname(__filename), '..', 'rules', 'mcp-chest-memory.md');
 
 const SERVER_NAME = 'chest-memory';
 const MCP_COMMAND = remoteMode
@@ -127,15 +130,16 @@ console.log('');
 if (!autoYes && !dryRun) {
   console.log('The following will be performed:');
   if (remoteMode) {
-    console.log(`  [1/3] Register MCP server '${SERVER_NAME}' (remote → ${remoteUrl})`);
+    console.log(`  [1/4] Register MCP server '${SERVER_NAME}' (remote → ${remoteUrl})`);
   } else {
-    console.log(`  [1/3] Register MCP server '${SERVER_NAME}' (local SQLite)`);
+    console.log(`  [1/4] Register MCP server '${SERVER_NAME}' (local SQLite)`);
   }
-  console.log(`  [2/3] Install skill → ${SKILL_TARGET}`);
+  console.log(`  [2/4] Install skill → ${SKILL_TARGET}`);
+  console.log(`  [3/4] Install rules → ${RULES_TARGET}`);
   if (remoteMode) {
-    console.log(`  [3/3] Hooks: skipped (remote mode)`);
+    console.log(`  [4/4] Hooks: skipped (remote mode)`);
   } else {
-    console.log(`  [3/3] Wire hooks in ${SETTINGS_PATH}`);
+    console.log(`  [4/4] Wire hooks in ${SETTINGS_PATH}`);
   }
   console.log('');
   const ok = await confirm('Proceed? (y/N) ');
@@ -148,7 +152,7 @@ if (!autoYes && !dryRun) {
 
 // ── Step 1: Register MCP server ──────────────────────────
 
-console.log(`${BOLD}[1/3]${RESET} Registering MCP server...`);
+console.log(`${BOLD}[1/4]${RESET} Registering MCP server...`);
 
 let mcpAlreadyRegistered = false;
 try {
@@ -215,7 +219,7 @@ console.log('');
 
 // ── Step 2: Install SKILL.md ─────────────────────────────
 
-console.log(`${BOLD}[2/3]${RESET} Installing agent skill...`);
+console.log(`${BOLD}[2/4]${RESET} Installing agent skill...`);
 
 if (!existsSync(SKILL_SRC)) {
   console.log(`  ${FAIL} Bundled SKILL.md not found (packaging bug)`);
@@ -247,9 +251,42 @@ if (!existsSync(SKILL_SRC)) {
 }
 console.log('');
 
-// ── Step 3: Configure hooks ──────────────────────────────
+// ── Step 3: Install rules file ───────────────────────────
 
-console.log(`${BOLD}[3/3]${RESET} Configuring hooks (auto-capture + compaction snapshots)...`);
+console.log(`${BOLD}[3/4]${RESET} Installing agent rules...`);
+
+if (!existsSync(RULES_SRC)) {
+  console.log(`  ${FAIL} Bundled rules file not found (packaging bug)`);
+  console.log(`  ${DIM}Expected at: ${RULES_SRC}${RESET}`);
+} else if (dryRun) {
+  console.log(`  ${DIM}[dry-run] Would copy to: ${RULES_TARGET}${RESET}`);
+} else {
+  mkdirSync(RULES_DIR, { recursive: true });
+
+  let shouldWriteRules = true;
+  if (existsSync(RULES_TARGET)) {
+    try {
+      const existing = readFileSync(RULES_TARGET, 'utf8');
+      const bundled = readFileSync(RULES_SRC, 'utf8');
+      if (existing === bundled) {
+        console.log(`  ${SKIP} Rules already installed and up to date`);
+        shouldWriteRules = false;
+      } else {
+        console.log(`  ${DIM}Updating to latest version...${RESET}`);
+      }
+    } catch { /* fallthrough to write */ }
+  }
+
+  if (shouldWriteRules) {
+    copyFileSync(RULES_SRC, RULES_TARGET);
+    console.log(`  ${CHECK} Rules installed → ${RULES_TARGET}`);
+  }
+}
+console.log('');
+
+// ── Step 4: Configure hooks ──────────────────────────────
+
+console.log(`${BOLD}[4/4]${RESET} Configuring hooks (auto-capture + compaction snapshots)...`);
 
 // `npx -y -p mcp-chest-memory@latest <bin>` commands so the hooks always run
 // the published package and follow npm releases without a setup re-run. The

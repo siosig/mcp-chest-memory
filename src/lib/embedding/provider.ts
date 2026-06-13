@@ -3,7 +3,8 @@
 // interface; vectors are stamped with the producing model/dimension so a
 // future model change can be detected and re-indexed via `chest-index reembed`.
 
-import { localProvider } from "./local-provider.js";
+import { resolveProvider } from "./registry.js";
+import { validateEnv } from "../../utils/env.js";
 
 export interface EmbeddingProvider {
   readonly id: string;
@@ -20,7 +21,8 @@ export interface EmbeddingProvider {
 let override: EmbeddingProvider | undefined;
 
 export function activeProvider(): EmbeddingProvider {
-  return override ?? localProvider;
+  if (override) return override;
+  return resolveProvider(validateEnv().CHEST_EMBED_MODEL);
 }
 
 /** Test helper: override or reset the active provider. */

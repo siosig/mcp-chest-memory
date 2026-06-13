@@ -24,7 +24,9 @@
 //   3 DB init failed
 
 import "../utils/temporal.js";
-import { ensurePrismaInitialized, shutdownPrisma, prisma, rawAll, rawRun } from "../lib/db/prisma-client.js";
+import { copyFileSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { ensurePrismaInitialized, shutdownPrisma, prisma, rawAll, rawGet, rawRun } from "../lib/db/prisma-client.js";
 import { logger } from "../utils/logger.js";
 import { acquireLock } from "./chest-index-flock.js";
 import { runActivationPhase } from "../lib/activation.js";
@@ -32,10 +34,12 @@ import { runDecayPhase } from "../lib/decay.js";
 import { activeProvider } from "../lib/embedding/provider.js";
 import { runLocalPendingSweep } from "../lib/embedding/sync-embed.js";
 import { SWEEP_LIMIT } from "../lib/embedding/config.js";
+import { dbPath } from "../utils/env.js";
+import { tokenize } from "../lib/search/tokenizer.js";
 
 type Mode = "activation" | "decay" | "supersess" | "embed-cycle";
 
-type Command = "up" | "status" | "reembed";
+type Command = "up" | "status" | "reembed" | "migrate";
 
 interface Args {
   command: Command;
@@ -47,6 +51,7 @@ interface Args {
   quiet: boolean;
   help: boolean;
   sweepLimit: number;
+  batchSize: number;
 }
 
 function parseUint(value: string | undefined, fallback: number, flag: string): number {
@@ -71,6 +76,7 @@ function parseArgs(argv: string[]): Args {
     quiet: false,
     help: false,
     sweepLimit: SWEEP_LIMIT,
+    batchSize: 200,
   };
   for (let i = 0; i < argv.length; i++) {
     const v = argv[i];
@@ -83,6 +89,12 @@ function parseArgs(argv: string[]): Args {
         break;
       case "reembed":
         a.command = "reembed";
+        break;
+      case "migrate":
+        a.command = "migrate";
+        break;
+      case "--batch-size":
+        a.batchSize = parseUint(argv[++i], 200, "--batch-size");
         break;
       case "--all":
         a.all = true;
@@ -136,9 +148,11 @@ USAGE
   chest-index up --supersess       supersession sweep
   chest-index up --embed-cycle     embedding backfill of pending rows
   chest-index up --check           dry-run; show what would change, write nothing
-  chest-index status               embedding status report
+  chest-index status               embedding status report (includes FTS tokenization count)
   chest-index reembed              reset vectors from an older embedding model to
                                    pending, then backfill with the current model
+  chest-index migrate [--force] [--batch-size N] [--check]
+                                   backfill content_tokenized for existing memories
 
 OPTIONS
   --sweep-limit N  max rows backfilled per embedding sweep (default ${SWEEP_LIMIT})
@@ -225,6 +239,16 @@ async function runStatus(): Promise<number> {
   );
   const mismatchCount = Number(mismatch[0]?.c ?? 0);
 
+  const ftsStats = await rawAll<{ tokenized_count: number; pending_count: number }>(
+    prisma,
+    `SELECT
+       COUNT(CASE WHEN content_tokenized IS NOT NULL THEN 1 END) AS tokenized_count,
+       COUNT(CASE WHEN content_tokenized IS NULL THEN 1 END) AS pending_count
+     FROM memories WHERE archived_at IS NULL`,
+  );
+  const ftsTokenized = Number(ftsStats[0]?.tokenized_count ?? 0);
+  const ftsPending = Number(ftsStats[0]?.pending_count ?? 0);
+
   process.stdout.write(`[chest-index] status\n`);
   process.stdout.write(`  model      : ${provider.model} (${provider.dim}-dim)\n`);
   for (const r of byStatus) {
@@ -239,11 +263,38 @@ async function runStatus(): Promise<number> {
   } else {
     process.stdout.write("  all done vectors match the current model\n");
   }
+  process.stdout.write(
+    `  FTS tokenized : ${ftsTokenized} tokenized | ${ftsPending} not tokenized\n`,
+  );
+  if (ftsPending > 0) {
+    process.stdout.write(`  → Run: chest-index migrate\n`);
+  }
   return 0;
 }
 
 async function runReembed(quiet: boolean): Promise<number> {
   const provider = activeProvider();
+
+  // Discover what model was previously used for the majority of done rows.
+  const prevModel = await rawGet<{ embedding_model: string | null; embedding_dim: number | null }>(
+    prisma,
+    `SELECT embedding_model, embedding_dim FROM memories
+       WHERE embedding_status='done' AND archived_at IS NULL
+         AND embedding_model IS NOT ?
+       LIMIT 1`,
+    provider.model,
+  );
+  if (!quiet) {
+    if (prevModel?.embedding_model) {
+      process.stdout.write(
+        `[chest-index] reembed previous: ${prevModel.embedding_model} (dim=${prevModel.embedding_dim})\n`,
+      );
+    }
+    process.stdout.write(
+      `[chest-index] reembed target:   ${provider.model} (dim=${provider.dim})\n`,
+    );
+  }
+
   const reset = await rawRun(
     prisma,
     `UPDATE memories
@@ -256,6 +307,7 @@ async function runReembed(quiet: boolean): Promise<number> {
   );
   if (!quiet) {
     process.stdout.write(`[chest-index] reembed: ${reset} memories reset to pending\n`);
+    process.stdout.write(`[chest-index] reembed: embedding sweep started (this may take a while)...\n`);
   }
   let total = 0;
   // Sweep until the pending queue is drained or the model is unavailable.
@@ -265,6 +317,129 @@ async function runReembed(quiet: boolean): Promise<number> {
     if (r.scanned === 0 || r.embedded === 0) break;
   }
   if (!quiet) process.stdout.write(`[chest-index] reembed: ${total} re-embedded\n`);
+  return 0;
+}
+
+interface PendingRow {
+  id: number;
+  content: string;
+}
+
+async function runMigrate(args: Args): Promise<number> {
+  const db = dbPath();
+
+  if (args.check) {
+    const pending = await rawGet<{ c: number }>(
+      prisma,
+      "SELECT COUNT(*) AS c FROM memories WHERE content_tokenized IS NULL AND archived_at IS NULL",
+    );
+    const n = Number(pending?.c ?? 0);
+    process.stdout.write(
+      `[chest-index migrate] dry-run: ${n} memories would be tokenized\n`,
+    );
+    return 0;
+  }
+
+  // Step 1: Backup.
+  if (!args.force) {
+    const backupPath = `${db}.bak.${Math.floor(Date.now() / 1000)}`;
+    try {
+      copyFileSync(db, backupPath);
+      process.stdout.write(`[chest-index migrate] backup: ${backupPath}\n`);
+    } catch (err: unknown) {
+      process.stderr.write(
+        `[chest-index migrate] backup failed: ${(err as Error).message}\n`,
+      );
+      return 1;
+    }
+  } else {
+    process.stdout.write(`[chest-index migrate] backup skipped (--force)\n`);
+  }
+
+  // Step 2: Check schema and apply migration if content_tokenized column is absent.
+  const colExists = await rawGet<{ cid: number }>(
+    prisma,
+    "SELECT cid FROM pragma_table_info('memories') WHERE name = 'content_tokenized'",
+  );
+  if (!colExists) {
+    const migrationPath = join(
+      new URL("../../..", import.meta.url).pathname,
+      "prisma/migrations/1_multilingual_fts/migration.sql",
+    );
+    try {
+      const sql = readFileSync(migrationPath, "utf8");
+      // Split and run each statement individually (Prisma rawRun wraps in a transaction).
+      const stmts = sql
+        .split(/;\s*\n/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0 && !s.startsWith("--"));
+      for (const stmt of stmts) {
+        await rawRun(prisma, stmt);
+      }
+      process.stdout.write(`[chest-index migrate] schema: migration applied\n`);
+    } catch (err: unknown) {
+      process.stderr.write(
+        `[chest-index migrate] schema migration failed: ${(err as Error).message}\n`,
+      );
+      return 1;
+    }
+  } else {
+    process.stdout.write(`[chest-index migrate] schema: content_tokenized column present\n`);
+  }
+
+  // Step 3: Tokenize all memories with content_tokenized IS NULL in batches.
+  const totalRow = await rawGet<{ c: number }>(
+    prisma,
+    "SELECT COUNT(*) AS c FROM memories WHERE content_tokenized IS NULL AND archived_at IS NULL",
+  );
+  const total = Number(totalRow?.c ?? 0);
+  if (total === 0) {
+    process.stdout.write(`[chest-index migrate] done: all memories already tokenized\n`);
+    return 0;
+  }
+  process.stdout.write(`[chest-index migrate] tokenizing ${total} memories...\n`);
+
+  let done = 0;
+  let failed = 0;
+  const batchSize = args.batchSize;
+
+  for (;;) {
+    const rows = await rawAll<PendingRow>(
+      prisma,
+      "SELECT id, content FROM memories WHERE content_tokenized IS NULL AND archived_at IS NULL LIMIT ?",
+      batchSize,
+    );
+    if (rows.length === 0) break;
+
+    for (const row of rows) {
+      try {
+        const tokenized = await tokenize(row.content);
+        await rawRun(
+          prisma,
+          "UPDATE memories SET content_tokenized = ? WHERE id = ?",
+          tokenized,
+          row.id,
+        );
+        done++;
+      } catch (err: unknown) {
+        logger.warn({ err, id: row.id }, "migrate: tokenize failed for memory");
+        failed++;
+      }
+    }
+    process.stdout.write(`[chest-index migrate] progress: ${done}/${total}\n`);
+  }
+
+  // Step 4: Rebuild FTS index from the now-populated content_tokenized values.
+  try {
+    await rawRun(prisma, "INSERT INTO memories_fts(memories_fts) VALUES('rebuild')");
+    process.stdout.write(`[chest-index migrate] FTS index rebuilt\n`);
+  } catch (err: unknown) {
+    process.stderr.write(
+      `[chest-index migrate] FTS rebuild warning: ${(err as Error).message}\n`,
+    );
+  }
+
+  process.stdout.write(`[chest-index migrate] done: ${done} tokenized, ${failed} failed\n`);
   return 0;
 }
 
@@ -297,6 +472,7 @@ async function main(): Promise<number> {
     // querying, killing the engine mid-flight.
     if (args.command === "status") return await runStatus();
     if (args.command === "reembed") return await runReembed(args.quiet);
+    if (args.command === "migrate") return await runMigrate(args);
 
     const summary: string[] = [];
     for (const phase of phases) {

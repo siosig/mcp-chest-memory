@@ -76,6 +76,8 @@ model Memory {
   embeddingStateChangedAt      BigInt   @default(dbgenerated("(unixepoch())")) @map("embedding_state_changed_at")
   embeddingDim                 Int?     @map("embedding_dim")
 
+  contentTokenized         String?  @map("content_tokenized")
+
   activationScore          Float?   @map("activation_score")
   ttlPenalty               Float?   @map("ttl_penalty")
   supersessionPenalty      Float?   @map("supersession_penalty")

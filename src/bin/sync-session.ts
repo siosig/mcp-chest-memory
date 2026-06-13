@@ -16,8 +16,9 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { isPathInside } from '../lib/path-guard.js';
 import { fileURLToPath } from 'node:url';
+import { chestRootDir, validateEnv } from '../utils/env.js';
 
-const LOG_DIR = process.env.CHEST_DATA_DIR ?? join(homedir(), '.chest-memory');
+const LOG_DIR = chestRootDir(validateEnv());
 const LOG_FILE = join(LOG_DIR, 'hook.log');
 const LOG_MAX_BYTES = 1024 * 1024; // 1 MB → rotate
 

@@ -8,9 +8,9 @@
 
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { chestRootDir, validateEnv } from '../utils/env.js';
 
-const LOG_DIR = process.env.CHEST_DATA_DIR ?? join(homedir(), '.chest-memory');
+const LOG_DIR = chestRootDir(validateEnv());
 const LOG_FILE = join(LOG_DIR, 'hook.log');
 
 function log(msg: string): void {

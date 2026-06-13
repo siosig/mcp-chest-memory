@@ -55,7 +55,7 @@ feel the difference for yourself — getting started solo is very easy.
   - [Forgetting](#forgetting)
   - [Supersession (overwrite detection)](#supersession-overwrite-detection)
   - [Storage](#storage)
-  - [Full-text search: FTS5 trigram](#full-text-search-fts5-trigram)
+  - [Full-text search: FTS5 unicode61 + tokenized](#full-text-search-fts5-unicode61--tokenized)
   - [Hybrid ranking](#hybrid-ranking)
   - [Memory lifecycle](#memory-lifecycle)
   - [Maintenance](#maintenance)
@@ -79,15 +79,17 @@ feel the difference for yourself — getting started solo is very easy.
 - **6-layer structured memory** — `goal` / `context` / `emotion` /
   `implementation` / `realize` (failures & pitfalls, protected from
   forgetting) / `learning` (insights & decisions)
-- **Hybrid recall** — SQLite FTS5 trigram full-text search fused with vector
-  similarity via Reciprocal Rank Fusion, then weighted by recency heat,
-  entity momentum, and importance
-- **Multilingual by construction** — trigram tokenization needs no
-  morphological analyzer; Japanese/Chinese/Korean and whitespace-delimited
-  languages all work
-- **Offline-first embeddings** — a small multilingual model
-  (`multilingual-e5-small`, ONNX, ~120 MB) runs locally via transformers.js;
-  no API key, no network after the one-time model download
+- **Hybrid recall** — SQLite FTS5 unicode61 full-text search (over a
+  Sudachi-tokenized column for CJK) fused with vector similarity via
+  Reciprocal Rank Fusion, then weighted by recency heat, entity momentum,
+  and importance; optional cross-encoder reranker for better result ordering
+- **Multilingual by construction** — Japanese/Chinese/Korean text is
+  morpheme-tokenized (Sudachi-WASM) at write time into a dedicated FTS
+  column; whitespace-delimited languages work directly via unicode61 word
+  boundaries
+- **Offline-first embeddings** — `Xenova/bge-m3` (1024-dim, ONNX, ~560 MB)
+  runs locally via transformers.js; no API key, no network after the
+  one-time model download
 - **Memory lifecycle** — ACT-R style activation decay, TTL expiry,
   archive-first deletion, supersession detection, sleep-mode consolidation
 - **Token-saving file reads** — `chest_read_smart` caches file chunk hashes
@@ -114,7 +116,7 @@ npx -y -p mcp-chest-memory chest-memory-setup --yes
 
 Registers the MCP server with Claude Code, installs the `/chest-memory` skill,
 and wires the hooks. The database schema is created automatically on first
-launch; the embedding model (~120 MB) downloads in the background on first
+launch; the embedding model (~560 MB) downloads in the background on first
 use.
 
 #### Manual registration
@@ -388,18 +390,24 @@ snapshots, sessions, and consolidation audit rows. Schema is managed by
 Prisma migrations; the FTS5 virtual table and its sync triggers are plain SQL
 inside the same migration.
 
-### Full-text search: FTS5 trigram
+### Full-text search: FTS5 unicode61 + tokenized
 
-`memories_fts` indexes 3-character substrings (`tokenize='trigram
-remove_diacritics 1'`). This is language-agnostic: CJK text needs no word
-segmentation and no MeCab-style analyzer. Queries shorter than 3 characters
-fall back to a LIKE path. Scores come from SQLite's built-in `bm25()`.
+`memories_fts` is a content-table FTS5 virtual table over the
+`content_tokenized` column (`tokenize='unicode61 remove_diacritics 1'`).
+At write time, Japanese/Chinese/Korean text is morpheme-segmented by
+Sudachi-WASM and stored as space-separated tokens in `content_tokenized`;
+European languages are handled by unicode61's built-in word-boundary
+splitting. Queries shorter than 3 characters fall back to a LIKE path.
+Scores come from SQLite's built-in `bm25()`.
+
+Set `CHEST_FTS_TOKENIZE=false` to skip Sudachi tokenization (CJK recall
+will degrade to latin word boundaries only).
 
 ### Hybrid ranking
 
 For a recall query both paths run:
 
-1. **FTS path** — trigram match, ranked by bm25
+1. **FTS path** — unicode61 match over `content_tokenized`, ranked by bm25
 2. **Vector path** — query embedded by the local model, cosine similarity
    against stored vectors (only rows whose `(model, dim)` match the current
    model), top-k
@@ -458,6 +466,12 @@ automatic passes and drive everything via `chest-index` yourself.
 | `CHEST_SWEEP_LIMIT` | `500` | Max rows backfilled per embedding sweep |
 | `CHEST_MAINTENANCE_INTERVAL_SEC` | `600` | Min seconds between background maintenance passes |
 | `CHEST_AUTO_MAINTENANCE` | `1` | Set `0` to disable write-triggered maintenance |
+| `CHEST_EMBED_MODEL` | `Xenova/bge-m3` | Embedding model ID. Set `Xenova/multilingual-e5-small` to keep the pre-1.5 model |
+| `CHEST_FTS_TOKENIZE` | `true` | Sudachi morpheme tokenization on write (`false` or `0` to disable; CJK recall will degrade) |
+| `CHEST_RERANK_ENABLED` | `false` | Enable cross-encoder reranking after RRF fusion (`true` or `1` to enable) |
+| `CHEST_RERANK_MODEL` | `onnx-community/bge-reranker-v2-m3-ONNX` | Reranker model ID (only used when `CHEST_RERANK_ENABLED=true`) |
+| `CHEST_RERANK_TOP_N` | `20` | Number of candidates passed to the reranker (1–200) |
+| `CHEST_RERANK_TIMEOUT_MS` | `5000` | Hard timeout in ms for reranker inference (100–30000); pre-rerank order used on timeout |
 
 ### Security notes
 
@@ -559,6 +573,54 @@ npx -y -p mcp-chest-memory chest-memory-setup --yes   # local mode
 # or for remote:
 npx -y -p mcp-chest-memory chest-memory-setup --docker <url> <token> --yes
 ```
+
+## Migration Guide (v1.5.0)
+
+v1.5.0 changes the default embedding provider to **`Xenova/bge-m3`** (1024-dim, multilingual)
+and adds a tokenized FTS column for better Japanese/CJK recall. Existing installations
+need two one-time migration steps.
+
+### 1. Re-embed existing memories (new default: bge-m3)
+
+The default provider changed from `Xenova/multilingual-e5-small` (384-dim) to
+`Xenova/bge-m3` (1024-dim). Vectors from the old model are not searchable with the new
+one. Run:
+
+```bash
+chest-fetch-model          # download bge-m3 (~560 MB, one-time)
+chest-index reembed        # reset old vectors to pending and re-embed with bge-m3
+```
+
+To keep the old provider, set `CHEST_EMBED_MODEL=Xenova/multilingual-e5-small`.
+
+### 2. Backfill tokenized FTS column
+
+```bash
+chest-index migrate        # backup DB, add content_tokenized column, tokenize all rows
+```
+
+This creates a `.bak.<timestamp>` backup before touching the database.
+Pass `--check` for a dry-run (no writes). Pass `--force` to skip the backup step.
+
+After migration, short Japanese terms (1–2 characters) that previously missed the
+trigram minimum are matched by morpheme tokens.
+
+### Optional: cross-encoder reranking
+
+Set `CHEST_RERANK_ENABLED=true` to enable post-recall reranking with
+`onnx-community/bge-reranker-v2-m3-ONNX`. The reranker improves result ordering for
+multilingual queries. On timeout or model failure it degrades gracefully to the
+pre-rerank order.
+
+```bash
+chest-fetch-model          # also prefetches the reranker when CHEST_RERANK_ENABLED=true
+```
+
+Relevant env vars: `CHEST_RERANK_MODEL`, `CHEST_RERANK_TOP_N` (default 20),
+`CHEST_RERANK_TIMEOUT_MS` (default 5000).
+
+See [`specs/013-multilingual-recall-quality/quickstart.md`](specs/013-multilingual-recall-quality/quickstart.md)
+for a full walkthrough including eval harness usage.
 
 ## Security
 

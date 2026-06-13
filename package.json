@@ -33,6 +33,7 @@
     "dist/**/*.js",
     "dist/**/*.d.ts",
     "dist/skill/SKILL.md",
+    "dist/rules/mcp-chest-memory.md",
     "dist/lib/db/prisma-generated/*.prisma",
     "dist/lib/db/prisma-generated/package.json",
     "scripts/prisma-postinstall.cjs",
@@ -44,7 +45,7 @@
   ],
   "scripts": {
     "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('tsconfig.tsbuildinfo',{force:true})\"",
-    "build": "npm run clean && prisma generate && tsc && node -e \"require('fs').mkdirSync('dist/skill',{recursive:true}); require('fs').copyFileSync('src/skill/SKILL.md','dist/skill/SKILL.md')\" && node scripts/copy-prisma-generated.cjs",
+    "build": "npm run clean && prisma generate && tsc && node -e \"const fs=require('fs'); fs.mkdirSync('dist/skill',{recursive:true}); fs.copyFileSync('src/skill/SKILL.md','dist/skill/SKILL.md'); fs.mkdirSync('dist/rules',{recursive:true}); fs.copyFileSync('deploy/mcp-chest-memory.md','dist/rules/mcp-chest-memory.md')\" && node scripts/copy-prisma-generated.cjs",
     "postinstall": "node scripts/prisma-postinstall.cjs || true",
     "start": "node dist/mcp/server.js",
     "dev": "tsx src/mcp/server.ts",

@@ -18,6 +18,7 @@ import { runDecayPhase } from "./decay.js";
 import { runLocalPendingSweep } from "./embedding/sync-embed.js";
 import { SWEEP_LIMIT } from "./embedding/config.js";
 import { logger } from "../utils/logger.js";
+import { validateEnv } from "../utils/env.js";
 
 const META_KEY = "last_maintenance_at";
 
@@ -34,7 +35,7 @@ let runningInProcess = false;
 
 export interface MaintenanceResult {
   ran: boolean;
-  reason?: "disabled" | "throttled" | "busy" | "locked" | "error";
+  reason?: "disabled" | "throttled" | "busy" | "locked" | "error" | "remote-mode";
 }
 
 /** Run all maintenance phases now (no throttle). Caller must hold the lock. */
@@ -52,6 +53,13 @@ async function runPhases(): Promise<void> {
  * await after a write; it never throws.
  */
 export async function maybeRunMaintenance(): Promise<MaintenanceResult> {
+  // Remote-mode servers MUST NOT run maintenance: embeddings are computed
+  // client-side, and acquiring the flock here causes contention with manual
+  // `chest-index up` runs from operators. See memory id 5143 and spec
+  // FR-048.
+  if (validateEnv().CHEST_MODE === "remote") {
+    return { ran: false, reason: "remote-mode" };
+  }
   if (autoMaintenanceDisabled()) return { ran: false, reason: "disabled" };
   if (runningInProcess) return { ran: false, reason: "busy" };
   runningInProcess = true;

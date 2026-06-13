@@ -61,11 +61,17 @@ feel the difference for yourself — getting started solo is very easy.
   - [Maintenance](#maintenance)
 - [Configuration reference](#configuration-reference)
   - [Security notes](#security-notes)
+- [Diagnostics & reliability](#diagnostics--reliability)
+  - [doctor server / doctor client](#doctor-server--doctor-client)
+  - [fetch-model](#fetch-model)
+  - [pending-resync](#pending-resync)
+  - [BREAKING: client-side embedding default in remote mode](#breaking-client-side-embedding-default-in-remote-mode)
 - [Claude Code integration](#claude-code-integration)
   - [Stop — chest-memory-sync](#stop--chest-memory-sync)
   - [PreCompact — chest-memory-precompact](#precompact--chest-memory-precompact)
   - [SessionStart — chest-memory-session-start](#sessionstart--chest-memory-session-start)
   - [UserPromptSubmit — chest-memory-user-prompt-submit](#userpromptsubmit--chest-memory-user-prompt-submit)
+  - [Rules — chest-memory-rules](#rules--chest-memory-rules)
 - [Development](#development)
 - [Security](#security)
   - [Threat model](#threat-model)
@@ -458,6 +464,7 @@ automatic passes and drive everything via `chest-index` yourself.
 | `CHEST_DATA_DIR` | `~/.chest-memory` | Data root (database, model cache) |
 | `CHEST_DB_PATH` | `<data dir>/chest.db` | SQLite file |
 | `CHEST_REMOTE_URL` | — | Backend base URL (remote mode) |
+| `CHEST_CLIENT_EMBED` | `auto` | Where embeddings are computed. `auto` = client-side when `CHEST_MODE=remote`, server-side otherwise. Force with `true`/`false`. See [BREAKING note](#breaking-client-side-embedding-default-in-remote-mode) |
 | `CHEST_API_TOKEN` | — | Shared Bearer token (backend refuses to start without it; **minimum 32 characters**) |
 | `CHEST_PORT` | `8765` | REST backend listen port |
 | `CHEST_BIND_HOST` | `0.0.0.0` | REST backend listen host. Set to `127.0.0.1` to bind loopback only when a reverse proxy fronts the backend |
@@ -493,14 +500,110 @@ automatic passes and drive everything via `chest-index` yourself.
   host; remote mode forwards only the diff-cache snapshot rows, never a file path the
   backend would open.
 
+## Diagnostics & reliability
+
+Four `chest-index` subcommands diagnose configuration problems and keep the
+embedding pipeline healthy. All four accept `--json` for machine-readable output
+and follow the same exit-code convention: **`0`** all checks ok, **`1`** warnings
+only, **`2`** at least one failure.
+
+### doctor server / doctor client
+
+`chest-index doctor server` inspects the backend deployment (Docker daemon,
+container health, `compose.override.yaml` application, SQLite integrity / journal
+mode / writability, `CHEST_API_TOKEN`, and `/healthz` + `/capabilities`
+reachability). `chest-index doctor client` inspects the local agent setup (MCP
+registration, `~/.claude/rules/mcp-chest-memory.md`, the `/chest-memory` skill,
+the bge-m3 model cache, and connectivity to the configured remote backend).
+
+Each failing check prints a concrete `fix:` hint.
+
+```bash
+chest-index doctor server                       # human-readable report
+chest-index doctor server --json                # CI / scripting
+chest-index doctor server --container chest-memory --timeout 5
+chest-index doctor client
+```
+
+Example (a missing compose override — the most common deployment mistake):
+
+```
+[fail] server.compose.override    compose.override.yaml not applied
+         fix: docker compose -f deploy/compose.yaml -f deploy/compose.override.yaml up -d
+```
+
+### fetch-model
+
+`chest-index fetch-model` prefetches the active embedding model (bge-m3) — and,
+with `--reranker`, the cross-encoder — into the local cache **atomically**: each
+file is written to a `.tmp` path and `fs.rename`d into place, and partial /
+zero-byte files left by an interrupted run are purged on the next invocation.
+This pre-empts the first-write timeout that occurs when a `chest_remember`
+triggers an on-demand download. The Docker image runs it automatically at
+startup.
+
+```bash
+chest-index fetch-model              # download bge-m3 if not already cached
+chest-index fetch-model --reranker   # also fetch the reranker
+chest-index fetch-model --force      # re-download even if cached
+chest-index fetch-model --model <hf-id>
+```
+
+### pending-resync
+
+When a server has no embedder (remote mode), memories are written with
+`embedding_status='pending'` until a client embeds them. `chest-index
+pending-resync` drains that backlog: it lists pending rows from the backend,
+embeds each one locally with bge-m3, and pushes the vector back via
+`POST /memories/:id/embedding`.
+
+```bash
+chest-index pending-resync                       # drain all pending rows
+chest-index pending-resync --dry-run             # report the backlog size only
+chest-index pending-resync --batch-size 50 --concurrency 4 --max-retry 3
+```
+
+It is safe to re-run: already-embedded rows are skipped, `409` content
+conflicts are re-fetched and retried once, and transient `5xx` responses use
+exponential backoff.
+
+### BREAKING: client-side embedding default in remote mode
+
+Starting with this release, when `CHEST_MODE=remote` the client computes
+embeddings **locally** by default (`CHEST_CLIENT_EMBED=auto` → `true`) and sends
+the vector to the backend, instead of the backend embedding server-side. This
+lets the backend run without bge-m3 (smaller image, lower RSS) and removes the
+server-side maintenance/embedding sweep in remote mode entirely.
+
+**What you must do**: ensure every remote-mode client has the model cached —
+run `chest-index fetch-model` once per client machine. If a client has no model
+cache, writes fall back to leaving `pending` rows; recover them later with
+`chest-index pending-resync`.
+
+To keep the previous server-side behavior (backend embeds), set
+`CHEST_CLIENT_EMBED=false` on the clients **and** run the backend in a profile
+whose `/capabilities` reports `server_has_embedder: true` (i.e. `CHEST_MODE=local`
+on the backend host is not applicable for a shared backend; keep bge-m3 available
+server-side and leave the flag at `false`).
+
 ## Claude Code integration
 
-- **Skill**: `/chest-memory` (installed by `chest-memory-setup`) auto-classifies
-  the recent conversation into `realize` vs `learning` and saves it with the
-  rationale shown; `/chest-memory status` reports store health
-- **Hooks** (wired by `chest-memory-setup --yes`): four hooks are registered in
-  `~/.claude/settings.json`. Re-wire any time with
-  `npx -y -p mcp-chest-memory chest-memory-install-hooks`; remove with `--remove`.
+> **This section is for reference only.** If you ran `chest-memory-setup --yes`
+> as part of the installation, the skill, hooks, and rules are already configured.
+> Use this section to troubleshoot issues or to re-configure or remove individual
+> components.
+
+`chest-memory-setup --yes` configures the following:
+
+- **Skill**: `/chest-memory` auto-classifies the recent conversation into `realize`
+  vs `learning` and saves it with the rationale shown; `/chest-memory status`
+  reports store health
+- **Hooks**: four hooks are registered in `~/.claude/settings.json`. Re-wire any
+  time with `npx -y -p mcp-chest-memory chest-memory-install-hooks`; remove with
+  `--remove`
+- **Rules**: `~/.claude/rules/mcp-chest-memory.md` is installed and tells the
+  agent when to call `chest_recall` / `chest_remember`. `applyTo: "**"` applies it
+  automatically to every project
 
 #### Stop — `chest-memory-sync`
 
@@ -552,6 +655,32 @@ All four hooks exit `0` on any error (fail-silent) and write to
 each hook command embeds `CHEST_MODE=remote`, `CHEST_REMOTE_URL`, and
 `CHEST_API_TOKEN` so session data is forwarded to the backend instead of a local
 SQLite file.
+
+#### Rules — `chest-memory-rules`
+
+`chest-memory-setup --yes` step 3/4 copies the bundled `deploy/mcp-chest-memory.md`
+to `~/.claude/rules/mcp-chest-memory.md`. Claude Code loads this file at session
+start and tells the agent when to call `chest_recall` / `chest_remember`, how to
+classify layers, and what actions are prohibited. `applyTo: "**"` applies it to
+every project automatically.
+
+**Update** (to pick up the latest version after a package upgrade):
+
+```bash
+npx -y -p mcp-chest-memory chest-memory-setup --yes
+```
+
+`chest-memory-setup` is idempotent — it skips the file if it is already up to date
+and overwrites only when the content has changed.
+
+**Remove** (to disable the rules):
+
+```bash
+rm ~/.claude/rules/mcp-chest-memory.md
+```
+
+Removing the file has no effect on the MCP server or hooks. The `/chest-memory`
+skill provides equivalent guidance, so both can coexist without conflict.
 
 ## Development
 

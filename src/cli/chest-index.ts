@@ -39,7 +39,16 @@ import { tokenize } from "../lib/search/tokenizer.js";
 
 type Mode = "activation" | "decay" | "supersess" | "embed-cycle";
 
-type Command = "up" | "status" | "reembed" | "migrate";
+type Command =
+  | "up"
+  | "status"
+  | "reembed"
+  | "migrate"
+  | "doctor"
+  | "fetch-model"
+  | "pending-resync";
+
+type DoctorTarget = "server" | "client" | "";
 
 interface Args {
   command: Command;
@@ -52,6 +61,17 @@ interface Args {
   help: boolean;
   sweepLimit: number;
   batchSize: number;
+  doctorTarget: DoctorTarget;
+  json: boolean;
+  reranker: boolean;
+  modelId: string;
+  dryRun: boolean;
+  concurrency: number;
+  maxRetry: number;
+  container: string;
+  remoteUrl: string;
+  timeout: number;
+  positionals: string[];
 }
 
 function parseUint(value: string | undefined, fallback: number, flag: string): number {
@@ -77,6 +97,17 @@ function parseArgs(argv: string[]): Args {
     help: false,
     sweepLimit: SWEEP_LIMIT,
     batchSize: 200,
+    doctorTarget: "",
+    json: false,
+    reranker: false,
+    modelId: "",
+    dryRun: false,
+    concurrency: 2,
+    maxRetry: 5,
+    container: "chest-memory",
+    remoteUrl: "",
+    timeout: 5,
+    positionals: [],
   };
   for (let i = 0; i < argv.length; i++) {
     const v = argv[i];
@@ -92,6 +123,19 @@ function parseArgs(argv: string[]): Args {
         break;
       case "migrate":
         a.command = "migrate";
+        break;
+      case "doctor":
+        a.command = "doctor";
+        // doctor takes a positional sub-target (server/client)
+        if (argv[i + 1] === "server" || argv[i + 1] === "client") {
+          a.doctorTarget = argv[++i] as DoctorTarget;
+        }
+        break;
+      case "fetch-model":
+        a.command = "fetch-model";
+        break;
+      case "pending-resync":
+        a.command = "pending-resync";
         break;
       case "--batch-size":
         a.batchSize = parseUint(argv[++i], 200, "--batch-size");
@@ -126,6 +170,33 @@ function parseArgs(argv: string[]): Args {
       case "--quiet":
         a.quiet = true;
         break;
+      case "--json":
+        a.json = true;
+        break;
+      case "--reranker":
+        a.reranker = true;
+        break;
+      case "--model":
+        a.modelId = argv[++i] ?? "";
+        break;
+      case "--dry-run":
+        a.dryRun = true;
+        break;
+      case "--concurrency":
+        a.concurrency = parseUint(argv[++i], 2, "--concurrency");
+        break;
+      case "--max-retry":
+        a.maxRetry = parseUint(argv[++i], 5, "--max-retry");
+        break;
+      case "--container":
+        a.container = argv[++i] ?? "chest-memory";
+        break;
+      case "--remote-url":
+        a.remoteUrl = argv[++i] ?? "";
+        break;
+      case "--timeout":
+        a.timeout = parseUint(argv[++i], 5, "--timeout");
+        break;
       case "-h":
       case "--help":
         a.help = true;
@@ -153,6 +224,16 @@ USAGE
                                    pending, then backfill with the current model
   chest-index migrate [--force] [--batch-size N] [--check]
                                    backfill content_tokenized for existing memories
+  chest-index doctor server [--json] [--container NAME] [--timeout N]
+                                   diagnose Docker / DB / compose / env / network
+  chest-index doctor client [--json] [--remote-url URL] [--timeout N]
+                                   diagnose MCP / rules / skills / model cache / conn
+  chest-index fetch-model [--json] [--reranker] [--force] [--model ID]
+                                   prefetch embedding (and optional reranker) model
+  chest-index pending-resync [--json] [--dry-run]
+                            [--batch-size N] [--concurrency N] [--max-retry N]
+                                   bulk-embed pending memories on the client and
+                                   push vectors to the server (remote mode)
 
 OPTIONS
   --sweep-limit N  max rows backfilled per embedding sweep (default ${SWEEP_LIMIT})
@@ -448,6 +529,22 @@ async function main(): Promise<number> {
   if (args.help) {
     process.stdout.write(HELP);
     return 0;
+  }
+
+  // doctor / fetch-model / pending-resync are read-only or external-facing
+  // operations that don't compete with the maintenance lock. Dispatch them
+  // before acquiring the lock so they survive when another instance holds it.
+  if (args.command === "doctor") {
+    const { runDoctor } = await import("./doctor/index.js");
+    return await runDoctor(args);
+  }
+  if (args.command === "fetch-model") {
+    const { runFetchModel } = await import("./fetch-model-cmd.js");
+    return await runFetchModel(args);
+  }
+  if (args.command === "pending-resync") {
+    const { runPendingResync } = await import("./pending-resync.js");
+    return await runPendingResync(args);
   }
 
   const phases = resolvePhases(args);

@@ -15,26 +15,45 @@ interface FeatureExtractor {
   }>;
 }
 
-let extractorPromise: Promise<FeatureExtractor | null> | undefined;
+// Cache the loaded pipeline so subsequent inferences reuse it. A failed load
+// (e.g. partial/missing model files) MUST NOT poison the cache — earlier
+// versions cached a null promise here, which left the process permanently
+// broken until a container restart. See memory id 5138.
+let loadedExtractor: FeatureExtractor | undefined;
+let pendingLoad: Promise<FeatureExtractor | null> | undefined;
 
 function getExtractor(): Promise<FeatureExtractor | null> {
-  if (!extractorPromise) {
-    extractorPromise = (async () => {
-      try {
-        const { pipeline, env } = await import("@huggingface/transformers");
-        env.cacheDir = modelCacheDir();
-        const pipe = await pipeline("feature-extraction", BGE_M3_MODEL_ID, { dtype: "q8" });
-        return pipe as unknown as FeatureExtractor;
-      } catch (e) {
-        logger.warn(
-          { err: e instanceof Error ? e.message : String(e) },
-          "bge-m3 model unavailable (offline before first download?); rows stay pending",
-        );
-        return null;
-      }
-    })();
-  }
-  return extractorPromise;
+  if (loadedExtractor) return Promise.resolve(loadedExtractor);
+  if (pendingLoad) return pendingLoad;
+  pendingLoad = (async () => {
+    try {
+      const { pipeline, env } = await import("@huggingface/transformers");
+      env.cacheDir = modelCacheDir();
+      const pipe = (await pipeline("feature-extraction", BGE_M3_MODEL_ID, {
+        dtype: "q8",
+      })) as unknown as FeatureExtractor;
+      loadedExtractor = pipe;
+      return pipe;
+    } catch (e) {
+      logger.warn(
+        { err: e instanceof Error ? e.message : String(e) },
+        "bge-m3 model unavailable (offline before first download?); rows stay pending — next call will retry",
+      );
+      // Do NOT cache the failure — clear pendingLoad in the finally below so a
+      // later request can try again (e.g. after the cache is populated by
+      // `chest-index fetch-model`).
+      return null;
+    } finally {
+      pendingLoad = undefined;
+    }
+  })();
+  return pendingLoad;
+}
+
+/** Reset the loaded extractor — for tests and recovery paths. */
+export function resetBgeM3CacheForTest(): void {
+  loadedExtractor = undefined;
+  pendingLoad = undefined;
 }
 
 // Same hard cap as local-provider: prevents OOM on large batches.

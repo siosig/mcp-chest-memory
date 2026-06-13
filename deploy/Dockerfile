@@ -16,6 +16,7 @@ RUN npm install
 COPY tsconfig.json ./
 COPY prisma ./prisma
 COPY src ./src
+COPY deploy/mcp-chest-memory.md ./deploy/mcp-chest-memory.md
 RUN npm run build
 
 # --- runtime stage -----------------------------------------------------------
@@ -42,5 +43,6 @@ USER node
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD curl -fsS http://127.0.0.1:8765/healthz || exit 1
 
-# Apply migrations, then start the REST backend.
-CMD ["sh", "-c", "node dist/bin/init-db.js && node dist/http/server.js"]
+# Apply migrations, prefetch the embedding model (best-effort — failure must
+# NOT block server startup per FR-036), then start the REST backend.
+CMD ["sh", "-c", "node dist/bin/init-db.js && (node dist/bin/fetch-model.js || echo '[chest] fetch-model failed; server will start without prefetched model') && node dist/http/server.js"]

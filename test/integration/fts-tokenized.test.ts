@@ -50,9 +50,13 @@ describe("tokenized FTS write path", () => {
       row!.content_tokenized !== null,
       "content_tokenized must be set when CHEST_FTS_TOKENIZE=true",
     );
-    // The tokenized form must contain the key word (space-separated).
+    // The tokenized form must contain the key words (space-separated). Compare
+    // case-insensitively: Sudachi normalizes OOV English surface forms to a
+    // canonical casing (e.g. "FOX", "Quick"), and FTS5 unicode61 lowercases at
+    // index time, so recall is case-insensitive regardless of stored casing.
+    const tokenizedLower = row!.content_tokenized!.toLowerCase();
     assert.ok(
-      row!.content_tokenized!.includes("fox") || row!.content_tokenized!.includes("quick"),
+      tokenizedLower.includes("fox") || tokenizedLower.includes("quick"),
       `content_tokenized "${row!.content_tokenized}" should include content words`,
     );
   });

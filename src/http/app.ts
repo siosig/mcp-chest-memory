@@ -19,6 +19,10 @@ import { importSessionContent } from "../lib/session-import.js";
 import { HookRecallRequestSchema, normalizeHookRecallRequest } from "../schemas/hook-recall.js";
 import { ChestError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
+import { createCapabilitiesRoute } from "./routes/capabilities.js";
+import { createMemoriesPendingRoute } from "./routes/memories-pending.js";
+import { createMemoriesEmbeddingRoute } from "./routes/memories-embedding.js";
+import { createDiagnosticsRoute } from "./routes/diagnostics.js";
 
 export interface CreateAppOptions {
   /** Shared bearer token. The backend refuses to start without one. */
@@ -236,6 +240,15 @@ export function createApp(opts: CreateAppOptions): Hono {
       return c.json(errorBody("INTERNAL_ERROR", "Internal server error"), 500);
     }
   });
+
+  // ── Reliability bundle (feature 014) endpoints ────────
+  // Mounted at root paths per contracts/http-*.md. Each sub-router carries its
+  // own bearerAuth so the shape of 401 bodies matches the contracts ({error}),
+  // independent of the {ok:false,error:{code,message}} shape used by /api/*.
+  app.route("/capabilities", createCapabilitiesRoute(opts.token));
+  app.route("/memories/pending", createMemoriesPendingRoute(opts.token));
+  app.route("/memories", createMemoriesEmbeddingRoute(opts.token));
+  app.route("/diagnostics", createDiagnosticsRoute(opts.token));
 
   app.notFound((c) => c.json(errorBody("NOT_FOUND", "Not found"), 404));
 

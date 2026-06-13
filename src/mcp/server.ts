@@ -26,6 +26,7 @@ import { RemoteSnapshotStore } from "./snapshot-store-remote.js";
 
 import { registerChestResources } from "./resources.js";
 import { registerChestPrompts } from "./prompts.js";
+import { maybePushClientEmbedding } from "./client-embed-bridge.js";
 
 const SERVER_VERSION = "1.0.0";
 
@@ -97,7 +98,18 @@ mcpServer.registerTool(
   },
   async (params) => {
     try {
-      return wrapResult(await executor.execute("chest_remember", params));
+      const resultText = await executor.execute("chest_remember", params);
+      // Remote+client-embed mode: compute the vector locally and push it back
+      // so the row never lingers in embedding_status='pending'. Fail-soft.
+      const content = typeof (params as { content?: unknown }).content === "string"
+        ? (params as { content: string }).content
+        : "";
+      if (content) {
+        void maybePushClientEmbedding(resultText, content).catch(() => {
+          /* logged inside the bridge */
+        });
+      }
+      return wrapResult(resultText);
     } catch (err: unknown) {
       return wrapError(err);
     }

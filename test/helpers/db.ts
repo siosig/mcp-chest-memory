@@ -84,6 +84,9 @@ export interface InsMemoryCols {
   embeddingStatus?: string;
   embeddingDim?: number | null;
   expiresAt?: number | null;
+  // Pre-tokenized form for FTS5 (unicode61). Defaults to the raw content so
+  // existing tests remain searchable without morphological tokenization.
+  contentTokenized?: string | null;
 }
 
 /** Create a memory and return its id as number. Decay columns can be overridden. */
@@ -115,6 +118,9 @@ export async function insMemory(
       ...(cols.embeddingStatus !== undefined ? { embeddingStatus: cols.embeddingStatus } : {}),
       ...(cols.embeddingDim !== undefined ? { embeddingDim: cols.embeddingDim } : {}),
       expiresAt: toBig(cols.expiresAt),
+      // Default to raw content so FTS (unicode61) can find test memories without
+      // requiring explicit tokenization in every test helper call.
+      contentTokenized: "contentTokenized" in cols ? cols.contentTokenized : content,
     },
   });
   return Number(m.id);

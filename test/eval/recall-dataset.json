@@ -1,0 +1,266 @@
+{
+  "memories": [
+    {
+      "slug": "bge-m3-decision",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "learning",
+      "content": "bge-m3 chosen as default embedding model: 1024-dim CLS pooling, no prefix, multilingual MTEB top performer"
+    },
+    {
+      "slug": "sudachi-tokenizer",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "learning",
+      "content": "Sudachi-WASM を日本語形態素解析に採用。Pure ESM で kuromoji より互換性が高い。content_tokenized カラムに保存。"
+    },
+    {
+      "slug": "prisma-migration",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "implementation",
+      "content": "prisma migration 1_multilingual_fts: content_tokenized TEXT column added, FTS5 recreated with unicode61 tokenizer"
+    },
+    {
+      "slug": "rrf-fusion",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "learning",
+      "content": "RRF (Reciprocal Rank Fusion) を FTS + vector のハイブリッド検索に使用。k=60 定数でランク融合。"
+    },
+    {
+      "slug": "reranker-optional",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "learning",
+      "content": "bge-reranker-v2-m3 is optional (CHEST_RERANK_ENABLED=false by default). Fail-open: if reranker times out, original RRF ranking is used."
+    },
+    {
+      "slug": "env-fts-tokenize",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "implementation",
+      "content": "CHEST_FTS_TOKENIZE env var controls whether Sudachi tokenization is applied on write. Default true. Set false to disable."
+    },
+    {
+      "slug": "chest-index-migrate",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "implementation",
+      "content": "chest-index migrate: backfills content_tokenized for all existing memories, rebuilds FTS index after schema migration"
+    },
+    {
+      "slug": "database-url-config",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "implementation",
+      "content": "DATABASE_URL points to SQLite file. CHEST_DB_PATH is the same path without file: prefix. Used by dbPath() utility."
+    },
+    {
+      "slug": "activation-score",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "learning",
+      "content": "activation score = importance * recency * access frequency, computed by ACT-R inspired formula, used for memory ranking"
+    },
+    {
+      "slug": "momentum-score",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "learning",
+      "content": "momentum score tracks entity activity level. refreshed on every remember/recall. used as a tiebreaker in recall ranking."
+    },
+    {
+      "slug": "protect-realize",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "realize",
+      "content": "realize layer memories are auto-protected (protected=1). Never forgotten by decay sweep. Use for critical pitfalls."
+    },
+    {
+      "slug": "nodejs-version",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "implementation",
+      "content": "Node.js v24 required. Uses DatabaseSync from node:sqlite (added in v22.5). ESM-only package."
+    },
+    {
+      "slug": "pnpm-workspace",
+      "entity_name": "hostname-server",
+      "entity_kind": "project",
+      "layer": "implementation",
+      "content": "pnpm workspace root ~/workspace. Filter: --filter mcp-chest-memory. Never use npm install."
+    },
+    {
+      "slug": "cos-similarity",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "learning",
+      "content": "cosine similarity computed as dot product of L2-normalized vectors. Stored as FLOAT in memories.embedding (JSON array)."
+    },
+    {
+      "slug": "fts5-bm25",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "learning",
+      "content": "FTS5 bm25() returns negative values: smaller = better relevance. Used ascending ORDER BY in recall query."
+    },
+    {
+      "slug": "typecheck-tsc",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "implementation",
+      "content": "pnpm run typecheck runs tsc --noEmit. Must pass before PR. TypeScript 6 strict mode."
+    },
+    {
+      "slug": "linksee-rebrand",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "realize",
+      "content": "CRITICAL: the package was renamed from linksee to chest. Never include linksee in commits, code, or docs. Run check-rebrand before commit."
+    },
+    {
+      "slug": "embedding-status-pending",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "implementation",
+      "content": "embedding_status = pending on insert. chest-index reembed backfills embeddings async. CHEST_SYNC_EMBED=1 embeds synchronously on write."
+    },
+    {
+      "slug": "supersession-manual",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "learning",
+      "content": "supersedes field in chest_remember: explicitly archive older memories. Protected or goal layer memories cannot be superseded."
+    },
+    {
+      "slug": "chest-data-dir",
+      "entity_name": "mcp-chest-memory",
+      "entity_kind": "project",
+      "layer": "implementation",
+      "content": "CHEST_DATA_DIR default is ~/.local/share/chest-memory. chestRootDir() = dirname(dbPath()). model cache under chestRootDir()/models."
+    }
+  ],
+  "cases": [
+    {
+      "id": "ja-01",
+      "query": "日本語形態素解析の実装方針",
+      "lang": "ja",
+      "expectedSlugs": ["sudachi-tokenizer"]
+    },
+    {
+      "id": "ja-02",
+      "query": "埋め込みモデルの選定理由",
+      "lang": "ja",
+      "expectedSlugs": ["bge-m3-decision"]
+    },
+    {
+      "id": "ja-03",
+      "query": "ランク融合アルゴリズム",
+      "lang": "ja",
+      "expectedSlugs": ["rrf-fusion"]
+    },
+    {
+      "id": "ja-04",
+      "query": "記憶の永続保護設定",
+      "lang": "ja",
+      "expectedSlugs": ["protect-realize"]
+    },
+    {
+      "id": "ja-05",
+      "query": "モメンタムスコアの計算方法",
+      "lang": "ja",
+      "expectedSlugs": ["momentum-score"]
+    },
+    {
+      "id": "ja-short-01",
+      "query": "FTS",
+      "lang": "ja",
+      "expectedSlugs": ["fts5-bm25", "env-fts-tokenize"]
+    },
+    {
+      "id": "ja-short-02",
+      "query": "BM25",
+      "lang": "ja",
+      "expectedSlugs": ["fts5-bm25"]
+    },
+    {
+      "id": "ja-short-03",
+      "query": "RRF",
+      "lang": "ja",
+      "expectedSlugs": ["rrf-fusion"]
+    },
+    {
+      "id": "mixed-01",
+      "query": "bge-m3 embedding model multilingual",
+      "lang": "mixed",
+      "expectedSlugs": ["bge-m3-decision", "reranker-optional"]
+    },
+    {
+      "id": "mixed-02",
+      "query": "Sudachi tokenizer content_tokenized",
+      "lang": "mixed",
+      "expectedSlugs": ["sudachi-tokenizer", "env-fts-tokenize"]
+    },
+    {
+      "id": "mixed-03",
+      "query": "chest-index migrate backfill",
+      "lang": "mixed",
+      "expectedSlugs": ["chest-index-migrate"]
+    },
+    {
+      "id": "mixed-04",
+      "query": "CHEST_RERANK_ENABLED optional reranker",
+      "lang": "mixed",
+      "expectedSlugs": ["reranker-optional"]
+    },
+    {
+      "id": "en-01",
+      "query": "prisma migration schema change",
+      "lang": "en",
+      "expectedSlugs": ["prisma-migration"]
+    },
+    {
+      "id": "en-02",
+      "query": "embedding cosine similarity dot product",
+      "lang": "en",
+      "expectedSlugs": ["cos-similarity"]
+    },
+    {
+      "id": "en-03",
+      "query": "activation score memory ranking",
+      "lang": "en",
+      "expectedSlugs": ["activation-score"]
+    },
+    {
+      "id": "code-01",
+      "query": "DatabaseSync node:sqlite",
+      "lang": "code",
+      "expectedSlugs": ["nodejs-version"]
+    },
+    {
+      "id": "code-02",
+      "query": "pnpm --filter workspace",
+      "lang": "code",
+      "expectedSlugs": ["pnpm-workspace"]
+    },
+    {
+      "id": "code-03",
+      "query": "tsc --noEmit typecheck",
+      "lang": "code",
+      "expectedSlugs": ["typecheck-tsc"]
+    },
+    {
+      "id": "code-04",
+      "query": "embedding_status pending INSERT",
+      "lang": "code",
+      "expectedSlugs": ["embedding-status-pending"]
+    },
+    {
+      "id": "neg-01",
+      "query": "completely unrelated query about cooking recipes",
+      "lang": "en",
+      "expectedSlugs": []
+    }
+  ]
+}

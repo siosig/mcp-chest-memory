@@ -7,14 +7,13 @@
 // behind by a dead process is reclaimed on the next run.
 
 import { openSync, closeSync, writeSync, readFileSync, unlinkSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { chestRootDir, validateEnv } from "../utils/env.js";
 
-// The lock lives in the user-owned data directory, not a world-writable temp
-// dir. A shared /tmp path let any local user pre-create the lock (e.g. with PID
-// 1) and permanently deny maintenance. Mirrors the data-dir resolution used by
-// the hooks so the lock sits next to the database it guards.
-const DATA_DIR = process.env["CHEST_DATA_DIR"] ?? join(homedir(), ".chest-memory");
+// The lock lives in the chest root directory (beside the database), not a
+// world-writable temp dir. A shared /tmp path let any local user pre-create
+// the lock (e.g. with PID 1) and permanently deny maintenance.
+const DATA_DIR = chestRootDir(validateEnv());
 try {
   mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
 } catch {

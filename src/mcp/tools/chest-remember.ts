@@ -7,6 +7,8 @@ import { defaultExpiresAt } from "../../lib/activation.js";
 import { supersede } from "../../lib/supersession.js";
 import { MAX_CONTENT_CHARS } from "../../lib/embedding/config.js";
 import { redactText } from "../../lib/redact.js";
+import { tokenize } from "../../lib/search/tokenizer.js";
+import { validateEnv } from "../../utils/env.js";
 import type { ChestRememberInput } from "../../schemas/chest-remember.js";
 
 interface UpsertEntityArgs {
@@ -135,19 +137,23 @@ export async function handleChestRemember(args: ChestRememberInput): Promise<str
   // is consistent.
   // Credentials are redacted immediately before persistence; quality checks
   // (length / paste detection) run on the original unredacted text above.
+  const redacted = redactText(rawContent);
+  const contentTokenized = validateEnv().CHEST_FTS_TOKENIZE ? await tokenize(redacted) : null;
+
   await rawRun(
     prisma,
     `INSERT INTO memories
        (entity_id, layer, content, importance, protected, expires_at,
-        embedding_status, embedding_state_changed_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
+        embedding_status, embedding_state_changed_at, content_tokenized)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
     entityId,
     layer,
-    redactText(rawContent),
+    redacted,
     importance,
     importance >= 0.9 ? 1 : 0,
     expiresAt,
     nowSec,
+    contentTokenized,
   );
   const newId = await lastInsertId(prisma);
 

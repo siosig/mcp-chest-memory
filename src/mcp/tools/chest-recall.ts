@@ -16,6 +16,10 @@ import {
   NEUTRAL_RELEVANCE,
 } from "../../lib/search/recall-scoring.js";
 import { extractSnippet, DEFAULT_SNIPPET_WINDOW } from "../../lib/search/snippet.js";
+import { formatFtsQuery, formatFtsQueryFromTokens } from "../../lib/search/fts-query.js";
+import { tokenize as tokenizeText } from "../../lib/search/tokenizer.js";
+import { rerank } from "../../lib/search/reranker.js";
+import { validateEnv } from "../../utils/env.js";
 
 // The query is embedded by the local model with a timeout and fail-open
 // behavior: if the model is unavailable or the call times out, embedQuery
@@ -59,18 +63,16 @@ interface RecallRow {
 const V6_SELECT =
   "m.archived_at, m.superseded_by_id, m.activation_score, m.ttl_penalty, m.supersession_penalty, m.activation_computed_at, (m.embedding IS NULL) AS embedding_is_null";
 
-// FTS5 trigram query builder. The trigram tokenizer matches 3-character
-// substrings in any language (no morphological analyzer needed), but it
-// cannot match terms shorter than 3 characters — those are dropped here and
-// covered by the LIKE path instead. Each surviving term is double-quoted to
-// neutralize FTS5 operators and the terms are OR-joined.
-function toFtsQuery(raw: string): string {
-  const terms = raw
-    .replace(/["]/g, " ")
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter((t) => Array.from(t).length >= 3);
-  return terms.map((t) => `"${t}"`).join(" OR ");
+// Build FTS match expression: tokenize with Sudachi when CHEST_FTS_TOKENIZE=true
+// (unicode61 index over content_tokenized), otherwise use the trigram-compatible
+// formatter (3-char minimum). Both paths return empty string when no terms survive.
+async function buildFtsQuery(raw: string): Promise<string> {
+  if (validateEnv().CHEST_FTS_TOKENIZE) {
+    const tokenized = await tokenizeText(raw);
+    const tokens = tokenized.split(/\s+/).filter((t) => t.length > 0);
+    if (tokens.length > 0) return formatFtsQueryFromTokens(tokens);
+  }
+  return formatFtsQuery(raw);
 }
 
 // FTS5 search joined back to memories/entities. bm25() is "smaller is
@@ -253,7 +255,7 @@ export async function handleChestRecall(
   let rows: RecallRow[] = [];
   let searchMethod: "fts5" | "like" | "fts5+like" | "ids" = "like";
 
-  const ftsQuery = idsMode ? "" : toFtsQuery(args.query ?? "");
+  const ftsQuery = idsMode ? "" : await buildFtsQuery(args.query ?? "");
   const canUseFts = !!ftsQuery && !args.entity_name;
 
   const seen = new Map<number, RecallRow>();
@@ -487,8 +489,22 @@ export async function handleChestRecall(
     };
   });
 
-  const filtered = band ? scored.filter((s) => s.heat_band === band) : scored;
+  let filtered = band ? scored.filter((s) => s.heat_band === band) : scored;
   filtered.sort((a, b) => b.composite_score - a.composite_score);
+
+  // Optional cross-encoder reranking (CHEST_RERANK_ENABLED).
+  // Reranks the top-N candidates; tail beyond top-N is appended unchanged.
+  // Fail-open: on timeout or model error, the original RRF ranking is preserved.
+  if (args.query && !idsMode) {
+    const candidates = filtered.map((r) => ({ id: r.id, content: r.content }));
+    const reranked = await rerank(args.query, candidates);
+    if (reranked !== candidates) {
+      const order = new Map(reranked.map((c, i) => [c.id, i]));
+      filtered = [...filtered].sort(
+        (a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity),
+      );
+    }
+  }
 
   // Format each row for MCP output (content is JSON-parsed when possible).
   // The same function is used both for the token-budget serialization estimate and the final output,

@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { z } from "zod";
 
 // Central runtime configuration. Every deployment profile (single-PC local,
@@ -33,6 +33,28 @@ export const EnvSchema = z.object({
   CHEST_MAINTENANCE_INTERVAL_SEC: z.coerce.number().int().positive().default(600),
   /** Set to "0" to disable write-triggered background maintenance. */
   CHEST_AUTO_MAINTENANCE: z.string().optional(),
+  /** Embedding model ID. Must match a key in the provider registry. Default: Xenova/bge-m3. */
+  CHEST_EMBED_MODEL: z.string().default("Xenova/bge-m3"),
+  /** Enable cross-encoder reranking after RRF fusion. Disabled by default. */
+  CHEST_RERANK_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === "true" || v === "1")
+    .pipe(z.boolean())
+    .default(false),
+  /** Reranker model ID. Only used when CHEST_RERANK_ENABLED=true. */
+  CHEST_RERANK_MODEL: z.string().default("onnx-community/bge-reranker-v2-m3-ONNX"),
+  /** Number of post-RRF candidates to pass to the reranker (1–200). */
+  CHEST_RERANK_TOP_N: z.coerce.number().int().min(1).max(200).default(20),
+  /** Hard timeout (ms) for reranker inference (100–30000). On expiry, pre-rerank order is used. */
+  CHEST_RERANK_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(5000),
+  /** Enable Sudachi tokenization in the memory write path for FTS. Enabled by default. */
+  CHEST_FTS_TOKENIZE: z
+    .string()
+    .optional()
+    .transform((v) => v !== "false" && v !== "0")
+    .pipe(z.boolean())
+    .default(true),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -52,6 +74,11 @@ export function validateEnv(): Env {
   return cached;
 }
 
+/** Reset the env cache. For testing only — allows env var changes to take effect between test suites. */
+export function resetEnvCacheForTest(): void {
+  cached = undefined;
+}
+
 /** Resolve the data directory (created lazily by callers). */
 export function dataDir(env: Env = validateEnv()): string {
   return env.CHEST_DATA_DIR ?? join(homedir(), ".chest-memory");
@@ -62,8 +89,22 @@ export function dbPath(env: Env = validateEnv()): string {
   return env.CHEST_DB_PATH ?? join(dataDir(env), "chest.db");
 }
 
-/** Directory where the local embedding model is cached. */
+/**
+ * Root directory for all generated files (models, dict, logs, temp).
+ * Equals dirname(dbPath()), which is identical to dataDir() for default installs.
+ * When CHEST_DB_PATH points to a custom location, generated files land beside it.
+ */
+export function chestRootDir(env: Env = validateEnv()): string {
+  return dirname(dbPath(env));
+}
+
+/** Directory where embedding model ONNX files are cached. */
 export function modelCacheDir(env: Env = validateEnv()): string {
-  return join(dataDir(env), "models");
+  return join(chestRootDir(env), "models");
+}
+
+/** Directory where tokenizer dictionary files (Sudachi) are cached. */
+export function dictCacheDir(env: Env = validateEnv()): string {
+  return join(chestRootDir(env), "dict");
 }
 

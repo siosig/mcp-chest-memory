@@ -12,9 +12,12 @@ import { DatabaseSync } from "node:sqlite";
 const dir = mkdtempSync(join(tmpdir(), "chest-test-"));
 const file = join(dir, "chest.db");
 
-const migrationUrl = new URL("../../prisma/migrations/0_init/migration.sql", import.meta.url);
 const db = new DatabaseSync(file);
-db.exec(readFileSync(migrationUrl, "utf8"));
+const migrations = [
+  new URL("../../prisma/migrations/0_init/migration.sql", import.meta.url),
+  new URL("../../prisma/migrations/1_multilingual_fts/migration.sql", import.meta.url),
+];
+for (const url of migrations) db.exec(readFileSync(url, "utf8"));
 db.close();
 
 process.env.DATABASE_URL = `file:${file}`;

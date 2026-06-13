@@ -113,11 +113,11 @@
       "content": "pnpm run typecheck runs tsc --noEmit. Must pass before PR. TypeScript 6 strict mode."
     },
     {
-      "slug": "linksee-rebrand",
+      "slug": "oss-rebrand-policy",
       "entity_name": "mcp-chest-memory",
       "entity_kind": "project",
       "layer": "realize",
-      "content": "CRITICAL: the package was renamed from linksee to chest. Never include linksee in commits, code, or docs. Run check-rebrand before commit."
+      "content": "CRITICAL: this package has an OSS publication policy — never include the legacy internal project name in commits, code, or docs. Run check-rebrand before committing."
     },
     {
       "slug": "embedding-status-pending",

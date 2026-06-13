@@ -2,13 +2,13 @@
 // Returns space-separated surface forms for use in the content_tokenized column.
 // Fails open: if Sudachi is unavailable, returns the original text (whitespace-split).
 
-import { dictCacheDir } from "../../utils/env.js";
 import { logger } from "../../utils/logger.js";
 
-type SudachiTokenizeMode = "A" | "B" | "C";
-
+// sudachi@0.1.x: tokenize(input: string, mode: number): string
+// TokenizeMode = { A:0, B:1, C:2 } — mode must be a number, not a string.
 interface SudachiModule {
-  tokenize(text: string, mode?: SudachiTokenizeMode): string[];
+  tokenize(text: string, mode: number): string;
+  TokenizeMode: { A: number; B: number; C: number };
 }
 
 let sudachiPromise: Promise<SudachiModule | null> | undefined;
@@ -17,19 +17,12 @@ function getSudachi(): Promise<SudachiModule | null> {
   if (!sudachiPromise) {
     sudachiPromise = (async (): Promise<SudachiModule | null> => {
       try {
-        // sudachi-wasm package; pure ESM with WASM bundled.
+        // sudachi-wasm embeds the WASM as base64 and self-initializes at module load.
         const mod = await import("sudachi");
-        // The module may expose tokenize directly or via a TokenizeMode setup.
-        // We wrap into a unified interface.
-        if (typeof (mod as unknown as { tokenize: unknown }).tokenize === "function") {
+        if (typeof (mod as unknown as SudachiModule).tokenize === "function") {
           return mod as unknown as SudachiModule;
         }
-        // Some versions require initialization; attempt default export call.
-        if (typeof mod.default === "function") {
-          const instance = await (mod.default as unknown as () => Promise<SudachiModule>)();
-          return instance;
-        }
-        logger.warn({ dictDir: dictCacheDir() }, "sudachi module loaded but API not recognized; falling back to whitespace split");
+        logger.warn({}, "sudachi module loaded but API not recognized; falling back to whitespace split");
         return null;
       } catch (e) {
         logger.warn(
@@ -55,10 +48,15 @@ export async function tokenize(text: string): Promise<string> {
     return text.replace(/\s+/g, " ").trim();
   }
   try {
-    const tokens = sudachi.tokenize(text, "C");
-    if (Array.isArray(tokens) && tokens.length > 0) {
-      return tokens.join(" ");
-    }
+    // Mode C (= 2) yields the longest/most-natural segmentation — best for recall.
+    const MODE_C = sudachi.TokenizeMode?.C ?? 2;
+    const raw = sudachi.tokenize(text, MODE_C);
+    // sudachi@0.1.x returns a JSON string: [{surface, poses, ...}, ...]
+    const morphemes: Array<{ surface: string; poses: string[] }> = JSON.parse(raw);
+    const surfaces = morphemes
+      .map((m) => m.surface)
+      .filter((s) => s.trim().length > 0);
+    if (surfaces.length > 0) return surfaces.join(" ");
     return text.replace(/\s+/g, " ").trim();
   } catch (e) {
     logger.warn(

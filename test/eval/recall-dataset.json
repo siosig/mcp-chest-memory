@@ -86,7 +86,7 @@
     },
     {
       "slug": "pnpm-workspace",
-      "entity_name": "hostname-server",
+      "entity_name": "dev-workspace",
       "entity_kind": "project",
       "layer": "implementation",
       "content": "pnpm workspace root ~/workspace. Filter: --filter mcp-chest-memory. Never use npm install."

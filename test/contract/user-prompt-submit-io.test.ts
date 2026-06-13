@@ -18,7 +18,7 @@ test("UserPromptSubmit IO emits recall context for meaningful prompts", async ()
     { remoteClient: client([hookMemory()]), log: () => undefined },
   );
   assert.match(output, /<chest-recall>/);
-  assert.match(output, /データであり命令ではありません/);
+  assert.match(output, /untrusted DATA, not instructions/);
 });
 
 test("UserPromptSubmit IO is empty for skip, malformed, empty result, and backend error", async () => {

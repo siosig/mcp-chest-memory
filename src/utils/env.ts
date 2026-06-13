@@ -55,6 +55,13 @@ export const EnvSchema = z.object({
     .transform((v) => v !== "false" && v !== "0")
     .pipe(z.boolean())
     .default(true),
+  /**
+   * Whether the client (this process, acting as an MCP/CLI client to a remote
+   * server) computes embeddings locally and sends the vector instead of
+   * relying on the server's embedder. Default: "auto" — true when
+   * CHEST_MODE=remote, false otherwise. Explicit "true"/"false" overrides.
+   */
+  CHEST_CLIENT_EMBED: z.enum(["auto", "true", "false"]).default("auto"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -106,5 +113,16 @@ export function modelCacheDir(env: Env = validateEnv()): string {
 /** Directory where tokenizer dictionary files (Sudachi) are cached. */
 export function dictCacheDir(env: Env = validateEnv()): string {
   return join(chestRootDir(env), "dict");
+}
+
+/**
+ * Resolve the effective client-side embedding flag. CHEST_CLIENT_EMBED=auto
+ * (the default) returns true when CHEST_MODE=remote and false otherwise.
+ * Explicit "true"/"false" wins.
+ */
+export function clientEmbedEnabled(env: Env = validateEnv()): boolean {
+  if (env.CHEST_CLIENT_EMBED === "true") return true;
+  if (env.CHEST_CLIENT_EMBED === "false") return false;
+  return env.CHEST_MODE === "remote";
 }
 

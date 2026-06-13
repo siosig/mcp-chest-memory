@@ -50,18 +50,18 @@ describe("GET /capabilities", () => {
     assert.ok(!Number.isNaN(Date.parse(body.server_time)));
   });
 
-  test("server_has_embedder reflects CHEST_MODE", async () => {
+  test("server_has_embedder reflects embed config (sync OR sweep)", async () => {
     const app = createApp({ token: TOKEN, version: "test" });
     const res = await app.request("/capabilities", {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     const body = (await res.json()) as { server_has_embedder: boolean };
-    // Test env defaults to local; server should report embedder = true.
-    // (Remote-mode coverage is in integration/remote-mode test.)
-    assert.equal(
-      body.server_has_embedder,
-      (process.env.CHEST_MODE ?? "local") === "local",
-    );
+    // server_has_embedder is true unless BOTH write-time embed and the sweep are
+    // disabled. It is no longer tied to CHEST_MODE (the backend is always local).
+    const syncOn = process.env.CHEST_SYNC_EMBED !== "0";
+    const sweepOn =
+      process.env.CHEST_AUTO_MAINTENANCE !== "0" && (process.env.CHEST_MODE ?? "local") !== "remote";
+    assert.equal(body.server_has_embedder, syncOn || sweepOn);
   });
 
   test("advertised features include client-embed and pending-resync", async () => {

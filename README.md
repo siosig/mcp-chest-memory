@@ -291,17 +291,19 @@ own. Everything below is optional:
 flowchart LR
     subgraph client [Any client PC]
         CC[Claude Code] -->|stdio| MCP[chest-memory MCP server]
+        MCP -.->|"client-embed (when server_has_embedder=false)"| EMB[bge-m3 local embed]
     end
 
     MCP -->|"local mode (default)"| DB[(chest.db SQLite + FTS5)]
     MCP -->|"remote mode: REST + Bearer token"| NG[nginx TLS - WAN only]
     NG --> API[chest-server REST backend Docker]
     MCP -.->|"LAN: direct REST"| API
+    EMB -.->|"POST /memories/:id/embedding"| API
     API --> DB2[(host-mounted chest.db)]
 
     subgraph maintenance [Background maintenance - auto after writes]
         IDX[decay / sweeps / embedding backfill] --> DB
-        IDX2[same, inside the backend] --> DB2
+        IDX2[same, inside the backend - skipped when CHEST_AUTO_MAINTENANCE=0] --> DB2
     end
 ```
 
@@ -323,6 +325,35 @@ that persistence flows through the same executor port (local SQLite, or the
 backend in remote mode). So the token-saving read works in every profile, the
 backend never reads a client file, and there is still no `if (remote)` branch
 inside the tool.
+
+#### API negotiation and endpoints (v1.5+)
+
+Remote clients negotiate with the backend via `GET /capabilities`:
+
+- `api_version` / `min_required_client_version` — compatibility gate (older
+  clients are rejected).
+- `server_has_embedder` — decides which side embeds new memories on write (see
+  the BREAKING note above). It is derived from `CHEST_SYNC_EMBED` /
+  `CHEST_AUTO_MAINTENANCE`, **not** from `CHEST_MODE` (the backend always runs
+  local mode; `remote` would disable Prisma and break its database).
+
+Endpoints exposed by the REST backend:
+
+| Method · path | Purpose |
+|---|---|
+| `POST /api/tools/:tool` | Execute the 8 MCP tools (same executor as local mode) |
+| `GET /healthz` | Health check (unauthenticated) |
+| `GET /capabilities` | Version / features / `server_has_embedder` negotiation |
+| `GET /memories/pending` | Paginated list of embed-pending rows (for pending-resync) |
+| `POST /memories/:id/embedding` | Store a client-computed vector (validates dim / content_sha1) |
+| `GET /diagnostics/db` | Server-side Prisma DB health (for `doctor server`) |
+
+Operational CLI (see [Diagnostics & reliability](#diagnostics--reliability)):
+
+- `chest-index doctor server` / `doctor client` — configuration diagnostics
+  (`doctor server` consumes `/diagnostics/db` and `/capabilities`).
+- `chest-index fetch-model` — atomic prefetch of bge-m3 / reranker.
+- `chest-index pending-resync` — drain embed-pending rows by embedding them client-side.
 
 
 ### Memory layers
@@ -516,11 +547,19 @@ reachability). `chest-index doctor client` inspects the local agent setup (MCP
 registration, `~/.claude/rules/mcp-chest-memory.md`, the `/chest-memory` skill,
 the bge-m3 model cache, and connectivity to the configured remote backend).
 
+The SQLite checks are computed **inside the backend** (`GET /diagnostics/db`)
+using its live connection, so the doctor host needs neither `node:sqlite`
+(Node ≥ 22.5) nor knowledge of the container's data-volume path.
+
 Each failing check prints a concrete `fix:` hint.
 
+`doctor server` probes token-protected endpoints (`/capabilities`,
+`/diagnostics/db`), so set `CHEST_API_TOKEN` in the doctor's environment to
+match the server's token — otherwise those checks fail with `401`.
+
 ```bash
-chest-index doctor server                       # human-readable report
-chest-index doctor server --json                # CI / scripting
+CHEST_API_TOKEN=<token> chest-index doctor server   # human-readable report
+chest-index doctor server --json                    # CI / scripting
 chest-index doctor server --container chest-memory --timeout 5
 chest-index doctor client
 ```
@@ -569,22 +608,28 @@ exponential backoff.
 
 ### BREAKING: client-side embedding default in remote mode
 
-Starting with this release, when `CHEST_MODE=remote` the client computes
-embeddings **locally** by default (`CHEST_CLIENT_EMBED=auto` → `true`) and sends
-the vector to the backend, instead of the backend embedding server-side. This
-lets the backend run without bge-m3 (smaller image, lower RSS) and removes the
-server-side maintenance/embedding sweep in remote mode entirely.
+Starting with this release, remote-mode clients are willing to embed locally by
+default (`CHEST_CLIENT_EMBED=auto` → `true` when `CHEST_MODE=remote`). Whether a
+client *actually* embeds is negotiated through the backend's `/capabilities`:
 
-**What you must do**: ensure every remote-mode client has the model cached —
-run `chest-index fetch-model` once per client machine. If a client has no model
-cache, writes fall back to leaving `pending` rows; recover them later with
-`chest-index pending-resync`.
+- `server_has_embedder: true` (the default — the backend embeds new memories
+  itself): clients send plain text and the **server embeds**.
+- `server_has_embedder: false`: clients **embed locally** and push the vector, so
+  the backend never loads bge-m3 (smaller image, lower RSS).
 
-To keep the previous server-side behavior (backend embeds), set
-`CHEST_CLIENT_EMBED=false` on the clients **and** run the backend in a profile
-whose `/capabilities` reports `server_has_embedder: true` (i.e. `CHEST_MODE=local`
-on the backend host is not applicable for a shared backend; keep bge-m3 available
-server-side and leave the flag at `false`).
+A backend opts out of embedding — advertising `server_has_embedder: false` — by
+setting `CHEST_SYNC_EMBED=0` **and** `CHEST_AUTO_MAINTENANCE=0` (no write-time
+embed, no maintenance sweep). `server_has_embedder` is derived from those flags,
+**not** from `CHEST_MODE`: the REST backend always runs local mode (`remote`
+would disable its database), so the mode alone cannot express "the server won't
+embed".
+
+**What you must do** for a no-embedder backend: ensure every client has the model
+cached — run `chest-index fetch-model` once per client machine. If a client has
+no model cache, writes fall back to leaving `pending` rows; recover them later
+with `chest-index pending-resync`.
+
+Force the client behavior explicitly with `CHEST_CLIENT_EMBED=true|false`.
 
 ## Claude Code integration
 

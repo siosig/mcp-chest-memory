@@ -126,3 +126,23 @@ export function clientEmbedEnabled(env: Env = validateEnv()): boolean {
   return env.CHEST_MODE === "remote";
 }
 
+/**
+ * Whether THIS process, acting as a backend, automatically embeds newly written
+ * memories. True when either path is active:
+ *   - synchronous write-time embed (`CHEST_SYNC_EMBED` != "0"), or
+ *   - the background maintenance sweep (`CHEST_AUTO_MAINTENANCE` != "0" in a
+ *     non-remote process — remote-mode skips maintenance entirely).
+ *
+ * This drives `server_has_embedder` in /capabilities. It is intentionally NOT
+ * tied to CHEST_MODE: the REST backend must run in local mode (remote disables
+ * Prisma), so CHEST_MODE alone cannot express "the server won't embed". A
+ * backend deliberately set to CHEST_SYNC_EMBED=0 + CHEST_AUTO_MAINTENANCE=0
+ * advertises server_has_embedder=false, so remote clients embed locally and
+ * push vectors (see clientEmbedEnabled and the client-embed bridge).
+ */
+export function serverEmbedsEnabled(env: Env = validateEnv()): boolean {
+  const syncOn = process.env.CHEST_SYNC_EMBED !== "0";
+  const sweepOn = process.env.CHEST_AUTO_MAINTENANCE !== "0" && env.CHEST_MODE !== "remote";
+  return syncOn || sweepOn;
+}
+

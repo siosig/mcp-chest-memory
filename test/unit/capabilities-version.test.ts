@@ -23,6 +23,23 @@ function envWith(mode: "local" | "remote") {
   }
 }
 
+// Build capabilities with a precise set of embed-related env vars. Any of the
+// three keys not provided is unset for the duration of the call.
+const EMBED_KEYS = ["CHEST_MODE", "CHEST_SYNC_EMBED", "CHEST_AUTO_MAINTENANCE"] as const;
+function capsWith(vars: Partial<Record<(typeof EMBED_KEYS)[number], string>>) {
+  const prev = EMBED_KEYS.map((k) => [k, process.env[k]] as const);
+  for (const k of EMBED_KEYS) delete process.env[k];
+  for (const [k, v] of Object.entries(vars)) if (v !== undefined) process.env[k] = v;
+  resetEnvCacheForTest();
+  try {
+    return getServerCapabilities(validateEnv());
+  } finally {
+    for (const k of EMBED_KEYS) delete process.env[k];
+    for (const [k, v] of prev) if (v !== undefined) process.env[k] = v;
+    resetEnvCacheForTest();
+  }
+}
+
 test("capabilities: api_version mirrors package.json#version", () => {
   const caps = getServerCapabilities(envWith("local"));
   assert.equal(caps.api_version, pkg.version);
@@ -36,9 +53,23 @@ test("capabilities: features list is stable and non-empty", () => {
   assert.ok(caps.features.includes("pending-resync"));
 });
 
-test("capabilities: server_has_embedder flips with CHEST_MODE", () => {
-  assert.equal(getServerCapabilities(envWith("local")).server_has_embedder, true);
-  assert.equal(getServerCapabilities(envWith("remote")).server_has_embedder, false);
+test("capabilities: server_has_embedder reflects embed config, not CHEST_MODE", () => {
+  // Default backend: embeds at write time → true.
+  assert.equal(capsWith({}).server_has_embedder, true);
+  assert.equal(capsWith({ CHEST_MODE: "local" }).server_has_embedder, true);
+  // Write-time embed off, but the maintenance sweep still embeds → still true.
+  assert.equal(capsWith({ CHEST_SYNC_EMBED: "0" }).server_has_embedder, true);
+  // Both embed paths off → the backend won't embed (drain / client-embed setup).
+  assert.equal(
+    capsWith({ CHEST_SYNC_EMBED: "0", CHEST_AUTO_MAINTENANCE: "0" }).server_has_embedder,
+    false,
+  );
+  // CHEST_MODE alone does not flip it (the backend always runs local).
+  assert.equal(
+    capsWith({ CHEST_MODE: "local", CHEST_SYNC_EMBED: "0", CHEST_AUTO_MAINTENANCE: "0" })
+      .server_has_embedder,
+    false,
+  );
 });
 
 test("capabilities: server_time is an ISO-8601 timestamp", () => {

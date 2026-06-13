@@ -61,26 +61,27 @@ export async function checkEnvToken(container: string): Promise<PartialResult> {
 }
 
 /**
- * Server-side doctor expects CHEST_MODE=remote (the dockerised server runs
- * the REST backend). Anything else is a misconfiguration.
+ * The REST backend owns the SQLite store through Prisma, and Prisma is disabled
+ * when CHEST_MODE=remote (src/lib/db/prisma-client.ts). So a server container
+ * MUST run in local mode (the default); remote would break storage. Whether the
+ * server *embeds* is a separate axis (CHEST_SYNC_EMBED / CHEST_AUTO_MAINTENANCE),
+ * surfaced via /capabilities' server_has_embedder — not here.
  */
 export async function checkEnvMode(container: string): Promise<PartialResult> {
   const r = readEnv(container);
   if (!r.ok) return r.result;
   const mode = r.env["CHEST_MODE"];
-  if (mode === undefined) {
+  if (mode === undefined || mode === "local") {
     return {
-      status: "warn",
-      message: "CHEST_MODE is not set; defaults to 'local'. Server containers should set 'remote'.",
-      fix_hint: "Set `CHEST_MODE=remote` in compose.override.yaml and restart the container.",
+      status: "ok",
+      message: `CHEST_MODE=${mode ?? "local (default)"} — backend uses its local SQLite store.`,
+      fix_hint: "",
     };
-  }
-  if (mode === "remote") {
-    return { status: "ok", message: "CHEST_MODE=remote.", fix_hint: "" };
   }
   return {
     status: "fail",
-    message: `CHEST_MODE='${mode}' (expected 'remote').`,
-    fix_hint: "Set `CHEST_MODE=remote` in compose.override.yaml and restart the container.",
+    message: `CHEST_MODE='${mode}'. The REST backend must run in 'local' mode; 'remote' disables Prisma and breaks storage.`,
+    fix_hint:
+      "Remove CHEST_MODE (it defaults to local) or set CHEST_MODE=local in compose.override.yaml, then restart the container.",
   };
 }

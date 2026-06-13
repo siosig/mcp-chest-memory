@@ -26,7 +26,7 @@ export async function runServerChecks(opts: RunServerOpts): Promise<CheckResult[
   results.push(...(await runDbChecks(opts.container, opts.timeoutSec)));
 
   results.push(await runCheck("server.env.token", "CHEST_API_TOKEN set", "env", () => checkEnvToken(opts.container)));
-  results.push(await runCheck("server.env.mode", "CHEST_MODE=remote", "env", () => checkEnvMode(opts.container)));
+  results.push(await runCheck("server.env.mode", "CHEST_MODE is local (backend storage)", "env", () => checkEnvMode(opts.container)));
 
   results.push(await runCheck("server.network.health", "/healthz endpoint reachable", "network", () => checkHealthEndpoint(opts.container, opts.timeoutSec)));
   results.push(await runCheck("server.network.capabilities", "/capabilities endpoint reachable", "network", () => checkCapabilitiesEndpoint(opts.container, opts.timeoutSec)));

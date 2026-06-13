@@ -6,7 +6,7 @@
 // contract observed by external clients (CLI, MCP, future SDKs).
 
 import pkg from "../../package.json" with { type: "json" };
-import { validateEnv, type Env } from "../utils/env.js";
+import { validateEnv, serverEmbedsEnabled, type Env } from "../utils/env.js";
 
 /**
  * Bump when introducing a breaking change to any client-facing HTTP contract.
@@ -38,15 +38,18 @@ export interface ServerCapabilities {
 }
 
 /**
- * Build the capabilities payload. `server_has_embedder` reflects the deployment
- * profile: only local-mode servers run bge-m3 in-process; remote-mode servers
- * delegate embedding to clients (FR-042 / spec 014).
+ * Build the capabilities payload. `server_has_embedder` reflects whether the
+ * backend actually embeds new memories (write-time sync embed or the maintenance
+ * sweep), NOT CHEST_MODE — the backend always runs local mode (remote disables
+ * Prisma), so a server is opted out of embedding via CHEST_SYNC_EMBED=0 +
+ * CHEST_AUTO_MAINTENANCE=0. When false, remote clients embed locally and push
+ * vectors (FR-042 / spec 014). See serverEmbedsEnabled.
  */
 export function getServerCapabilities(env: Env = validateEnv()): ServerCapabilities {
   return {
     api_version: pkg.version,
     features: [...SERVER_FEATURES],
-    server_has_embedder: env.CHEST_MODE === "local",
+    server_has_embedder: serverEmbedsEnabled(env),
     min_required_client_version: MIN_REQUIRED_CLIENT_VERSION,
     server_time: new Date().toISOString(),
   };

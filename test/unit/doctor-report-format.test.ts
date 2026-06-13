@@ -29,7 +29,7 @@ function makeReport(): DoctorReport {
       category: "compose",
       status: "fail",
       message: "override file not present in config_files",
-      fix_hint: "docker compose -f deploy/compose.yaml -f deploy/compose.override.yaml up -d",
+      fix_hint: "docker compose -f deploy/docker/compose.yaml -f deploy/docker/compose.override.yaml up -d",
       duration_ms: 8,
     },
     {
@@ -83,7 +83,7 @@ test("formatText (TTY): emits ANSI color escapes", () => {
 
 test("formatText shows fix hints only for non-ok checks", () => {
   const out = formatText(makeReport(), { color: false });
-  assert.ok(out.includes("fix: docker compose -f deploy/compose.yaml"));
+  assert.ok(out.includes("fix: docker compose -f deploy/docker/compose.yaml"));
   assert.ok(out.includes("fix: set a strong CHEST_API_TOKEN"));
   // The ok check's empty fix_hint must not be printed.
   const fixLines = out.split("\n").filter((l) => l.trim().startsWith("fix:"));

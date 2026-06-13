@@ -11,19 +11,19 @@ const read = (rel: string): string => readFileSync(join(repoRoot, rel), "utf8");
 
 describe("deploy config hardening", () => {
   it("Dockerfile runs the runtime stage as the non-root node user", () => {
-    const df = read("deploy/Dockerfile");
+    const df = read("deploy/docker/Dockerfile");
     assert.match(df, /^USER node$/m, "Dockerfile must switch to USER node");
     assert.match(df, /chown -R node:node \/data/, "data dir must be owned by node");
   });
 
   it("compose runs as node and keeps the documented port mapping", () => {
-    const compose = read("deploy/compose.yaml");
+    const compose = read("deploy/docker/compose.yaml");
     assert.match(compose, /user:\s*"node"/, "compose service must run as node");
     assert.match(compose, /"8765:8765"/, "default port mapping unchanged (per clarification)");
   });
 
   it("nginx example sets HSTS and a restrictive CSP", () => {
-    const nginx = read("deploy/nginx.conf.example");
+    const nginx = read("deploy/nginx/nginx.conf.example");
     assert.match(nginx, /Strict-Transport-Security/, "HSTS header required");
     assert.match(nginx, /Content-Security-Policy/, "CSP header required");
   });

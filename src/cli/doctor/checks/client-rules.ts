@@ -2,7 +2,7 @@
 //
 // FR-021: verify the rules file is installed under `~/.claude/rules/` and is
 // not older than the bundled distribution copy (`dist/rules/...` in the
-// installed package, or `deploy/mcp-chest-memory.md` in the source tree).
+// installed package, or `deploy/claude/rules/mcp-chest-memory.md` in the source tree).
 //
 // The canonical filename is `mcp-chest-memory.md` as written by
 // `src/bin/setup.ts`. A legacy filename `chest-memory.md` is also accepted
@@ -44,7 +44,7 @@ async function statSafe(path: string): Promise<{ mtimeMs: number; size: number }
 /**
  * Resolve the bundled source rules file. In an installed package this is
  * `dist/rules/mcp-chest-memory.md` next to the compiled doctor module; in the
- * source tree it lives at `<repo>/deploy/mcp-chest-memory.md`. We probe both.
+ * source tree it lives at `<repo>/deploy/claude/rules/mcp-chest-memory.md`. We probe both.
  */
 async function resolveSourceRules(): Promise<string | null> {
   const candidates: string[] = [];
@@ -56,7 +56,7 @@ async function resolveSourceRules(): Promise<string | null> {
     // ignore
   }
   // Source-tree fallback (running from `src/` via tsx).
-  candidates.push(join(process.cwd(), "deploy", PRIMARY_NAME));
+  candidates.push(join(process.cwd(), "deploy", "claude", "rules", PRIMARY_NAME));
   for (const c of candidates) {
     const s = await statSafe(c);
     if (s) return c;

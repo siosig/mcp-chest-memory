@@ -30,7 +30,7 @@ export function resolvePort(container: string): { ok: true; info: PortInfo } | {
         status: "fail",
         message: `Container '${container}' does not publish ${DEFAULT_CONTAINER_PORT}.`,
         fix_hint:
-          "Add a `ports:` mapping (e.g. `8765:8765`) in deploy/compose.override.yaml and restart the container.",
+          "Add a `ports:` mapping (e.g. `8765:8765`) in deploy/docker/compose.override.yaml and restart the container.",
       },
     };
   }

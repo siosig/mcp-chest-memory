@@ -14,7 +14,7 @@ function client(memories: HookRecalledMemory[]): RemoteRecallClient {
 
 test("UserPromptSubmit IO emits recall context for meaningful prompts", async () => {
   const output = await runUserPromptSubmit(
-    JSON.stringify({ session_id: "s1", prompt: "Please fix remote recall", cwd: "/home/siosig/workspace/mcp/mcp-chest-memory" }),
+    JSON.stringify({ session_id: "s1", prompt: "Please fix remote recall", cwd: "/home/user/workspace/mcp/mcp-chest-memory" }),
     { remoteClient: client([hookMemory()]), log: () => undefined },
   );
   assert.match(output, /<chest-recall>/);
@@ -24,7 +24,7 @@ test("UserPromptSubmit IO emits recall context for meaningful prompts", async ()
 test("UserPromptSubmit IO is empty for skip, malformed, empty result, and backend error", async () => {
   assert.equal(
     await runUserPromptSubmit(
-      JSON.stringify({ session_id: "s1", prompt: "ok", cwd: "/home/siosig/workspace/mcp/mcp-chest-memory" }),
+      JSON.stringify({ session_id: "s1", prompt: "ok", cwd: "/home/user/workspace/mcp/mcp-chest-memory" }),
       { remoteClient: client([hookMemory()]), log: () => undefined },
     ),
     "",
@@ -32,7 +32,7 @@ test("UserPromptSubmit IO is empty for skip, malformed, empty result, and backen
   assert.equal(await runUserPromptSubmit("{", { remoteClient: client([]), log: () => undefined }), "");
   assert.equal(
     await runUserPromptSubmit(
-      JSON.stringify({ session_id: "s1", prompt: "Please fix remote recall", cwd: "/home/siosig/workspace/mcp/mcp-chest-memory" }),
+      JSON.stringify({ session_id: "s1", prompt: "Please fix remote recall", cwd: "/home/user/workspace/mcp/mcp-chest-memory" }),
       { remoteClient: client([]), log: () => undefined },
     ),
     "",
@@ -44,7 +44,7 @@ test("UserPromptSubmit IO is empty for skip, malformed, empty result, and backen
   };
   assert.equal(
     await runUserPromptSubmit(
-      JSON.stringify({ session_id: "s1", prompt: "Please fix remote recall", cwd: "/home/siosig/workspace/mcp/mcp-chest-memory" }),
+      JSON.stringify({ session_id: "s1", prompt: "Please fix remote recall", cwd: "/home/user/workspace/mcp/mcp-chest-memory" }),
       { remoteClient: failingClient, log: () => undefined },
     ),
     "",

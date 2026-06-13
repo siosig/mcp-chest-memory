@@ -19,7 +19,7 @@ test("remote-mode prompt-submit recall emits context within the hook budget usin
     JSON.stringify({
       session_id: "s1",
       prompt: "Please implement the remote prompt recall hook",
-      cwd: "/home/siosig/workspace/mcp/mcp-chest-memory",
+      cwd: "/home/user/workspace/mcp/mcp-chest-memory",
     }),
     { remoteClient, log: () => undefined },
   );

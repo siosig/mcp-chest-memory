@@ -20,7 +20,7 @@ test("prompt-submit runner accepts a fake prompt strategy without orchestration 
   };
 
   const output = await runUserPromptSubmit(
-    JSON.stringify({ session_id: "s1", prompt: "ok", cwd: "/home/siosig/workspace/mcp/mcp-chest-memory" }),
+    JSON.stringify({ session_id: "s1", prompt: "ok", cwd: "/home/user/workspace/mcp/mcp-chest-memory" }),
     { promptStrategy: strategy, remoteClient, log: () => undefined },
   );
 
